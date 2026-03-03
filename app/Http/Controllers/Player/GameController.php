@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Player;
 
+use App\Enums\FinaleChoiceType;
 use App\Enums\QuestionStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Player\SubmitAnswerRequest;
 use App\Http\Resources\QuestionResource;
 use App\Http\Resources\SessionPlayerResource;
+use App\Models\FinaleChoice;
 use App\Models\HintUsage;
 use App\Models\PlayerAnswer;
 use App\Models\RoundSkip;
@@ -272,8 +274,59 @@ class GameController extends Controller
         return response()->json(['message' => 'Manche passée. 1 000 transférés à la cagnotte.']);
     }
 
-    /**
-     * Récupère le SessionPlayer via le header X-Player-Token.
+    /**     * Soumet le choix de finale du joueur (Continuer ou Abandonner).
+     */
+    public function submitFinaleChoice(Request $request): JsonResponse
+    {
+        $sessionPlayer = $this->resolveSessionPlayer($request);
+
+        if (! $sessionPlayer) {
+            return response()->json(['message' => 'Token invalide.'], 401);
+        }
+
+        if ($sessionPlayer->status !== SessionPlayerStatus::Finalist) {
+            return response()->json(['message' => 'Vous n\'êtes pas finaliste.'], 422);
+        }
+
+        $session = $sessionPlayer->session;
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::Finale) {
+            return response()->json(['message' => 'La finale n\'est pas en cours.'], 422);
+        }
+
+        $validated = $request->validate([
+            'choice' => ['required', 'string', 'in:continue,abandon'],
+        ]);
+
+        $alreadyChosen = FinaleChoice::query()
+            ->where('session_id', $session->id)
+            ->where('session_player_id', $sessionPlayer->id)
+            ->exists();
+
+        if ($alreadyChosen) {
+            return response()->json(['message' => 'Vous avez déjà fait votre choix.'], 422);
+        }
+
+        FinaleChoice::create([
+            'session_id' => $session->id,
+            'session_player_id' => $sessionPlayer->id,
+            'choice' => FinaleChoiceType::from($validated['choice']),
+            'chosen_at' => now(),
+            'revealed' => false,
+        ]);
+
+        $totalChoices = FinaleChoice::query()
+            ->where('session_id', $session->id)
+            ->count();
+
+        return response()->json([
+            'message' => 'Choix enregistré.',
+            'both_ready' => $totalChoices >= 2,
+        ]);
+    }
+
+    /**     * Récupère le SessionPlayer via le header X-Player-Token.
      */
     private function resolveSessionPlayer(Request $request): ?SessionPlayer
     {
