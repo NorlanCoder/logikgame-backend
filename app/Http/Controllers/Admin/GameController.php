@@ -382,14 +382,14 @@ class GameController extends Controller
     private function checkAnswer(\App\Models\Question $question, PlayerAnswer $answer): bool
     {
         return match ($question->answer_type) {
-            AnswerType::MultipleChoice => $answer->selected_choice_id !== null
+            AnswerType::Qcm => $answer->selected_choice_id !== null
                 && $question->choices()->where('id', $answer->selected_choice_id)->where('is_correct', true)->exists(),
 
-            AnswerType::FreeText => $answer->answer_value !== null
+            AnswerType::Text => $answer->answer_value !== null
                 && strtolower(trim($this->removeAccents($answer->answer_value)))
                 === strtolower(trim($this->removeAccents($question->correct_answer))),
 
-            AnswerType::Numeric => $answer->answer_value !== null
+            AnswerType::Number => $answer->answer_value !== null
                 && is_numeric($answer->answer_value)
                 && abs((float) $answer->answer_value - (float) $question->correct_answer) <= 0.0001,
 

@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Player;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreRegistrationRequest extends FormRequest
 {
@@ -22,19 +21,9 @@ class StoreRegistrationRequest extends FormRequest
         return [
             'session_id' => ['required', 'integer', 'exists:game_sessions,id'],
             'full_name' => ['required', 'string', 'max:255'],
-            'email' => [
-                'required',
-                'email',
-                'max:255',
-                Rule::unique('registrations', 'email')->where('session_id', $sessionId),
-            ],
+            'email' => ['required', 'email', 'max:255'],
             'phone' => ['required', 'string', 'max:30'],
-            'pseudo' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('registrations', 'pseudo')->where('session_id', $sessionId),
-            ],
+            'pseudo' => ['required', 'string', 'max:50'],
         ];
     }
 

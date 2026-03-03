@@ -118,14 +118,14 @@ class PreselectionController extends Controller
     private function checkPreselectionAnswer(\App\Models\PreselectionQuestion $question, array $answerData): bool
     {
         return match ($question->answer_type) {
-            AnswerType::MultipleChoice => isset($answerData['selected_choice_id'])
+            AnswerType::Qcm => isset($answerData['selected_choice_id'])
                 && $question->choices->where('id', $answerData['selected_choice_id'])->where('is_correct', true)->isNotEmpty(),
 
-            AnswerType::FreeText => isset($answerData['answer_value'])
+            AnswerType::Text => isset($answerData['answer_value'])
                 && strtolower(trim((string) $answerData['answer_value']))
                 === strtolower(trim((string) $question->correct_answer)),
 
-            AnswerType::Numeric => isset($answerData['answer_value'])
+            AnswerType::Number => isset($answerData['answer_value'])
                 && is_numeric($answerData['answer_value'])
                 && abs((float) $answerData['answer_value'] - (float) $question->correct_answer) <= 0.0001,
 

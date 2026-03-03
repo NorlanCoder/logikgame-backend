@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Player;
 
-use App\Enums\EliminationReason;
 use App\Enums\QuestionStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
@@ -10,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Player\SubmitAnswerRequest;
 use App\Http\Resources\QuestionResource;
 use App\Http\Resources\SessionPlayerResource;
-use App\Models\Elimination;
 use App\Models\HintUsage;
 use App\Models\PlayerAnswer;
 use App\Models\RoundSkip;
@@ -214,7 +212,8 @@ class GameController extends Controller
             'session_player_id' => $sessionPlayer->id,
             'session_round_id' => $round->id,
             'question_id' => $question->id,
-            'used_at' => now(),
+            'question_hint_id' => $hint->id,
+            'activated_at' => now(),
         ]);
 
         return response()->json([
@@ -267,15 +266,6 @@ class GameController extends Controller
             ]);
 
             $sessionPlayer->decrement('capital', 1000);
-
-            Elimination::create([
-                'session_player_id' => $sessionPlayer->id,
-                'session_round_id' => $round->id,
-                'reason' => EliminationReason::RoundSkip,
-                'capital_transferred' => 1000,
-                'eliminated_at' => now(),
-            ]);
-
             $session->increment('jackpot', 1000);
         });
 

@@ -72,11 +72,15 @@ class RegistrationController extends Controller
         });
 
         if ($result['existing']) {
+            $result['registration']->load('player');
+
             return response()->json([
                 'message' => 'Vous êtes déjà inscrit à cette session.',
                 'registration' => new RegistrationResource($result['registration']),
             ], 200);
         }
+
+        $result['registration']->load('player');
 
         return response()->json(
             new RegistrationResource($result['registration']),
