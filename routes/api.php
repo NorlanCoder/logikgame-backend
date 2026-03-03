@@ -1,57 +1,86 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Admin\AuthController as AdminAuthController;
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\GameController as AdminGameController;
+use App\Http\Controllers\Admin\QuestionController;
+use App\Http\Controllers\Admin\SessionController;
+use App\Http\Controllers\Admin\SessionRoundController;
+use App\Http\Controllers\Player\GameController as PlayerGameController;
+use App\Http\Controllers\Player\PreselectionController;
+use App\Http\Controllers\Player\RegistrationController;
 use Illuminate\Support\Facades\Route;
-
-/*
-|--------------------------------------------------------------------------
-| API Routes — LOGIK GAME
-|--------------------------------------------------------------------------
-|
-| Prefix: /api
-| Middleware par défaut : throttle:api
-|
-| Structure :
-|   - /admin/*   → Routes administrateur (auth:sanctum, guard:admin)
-|   - /player/*  → Routes joueur (auth par token d'accès session)
-|   - /game/*    → Routes publiques du jeu (projection, inscription)
-|
-*/
 
 // --- Santé de l'API ---
 Route::get('/ping', fn () => response()->json(['status' => 'ok', 'timestamp' => now()->toIso8601String()]));
 
-// --- Auth Admin ---
+/*
+|--------------------------------------------------------------------------
+| Routes Admin
+|--------------------------------------------------------------------------
+*/
 Route::prefix('admin')->group(function () {
-    // Route::post('/login', [AuthController::class, 'login']);
+    // Authentification (publique)
+    Route::post('/login', [AdminAuthController::class, 'login']);
 
+    // Routes protégées par Sanctum
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/me', function (Request $request) {
-            return $request->user();
-        });
-        // Route::post('/logout', [AuthController::class, 'logout']);
+        Route::post('/logout', [AdminAuthController::class, 'logout']);
+        Route::get('/me', [AdminAuthController::class, 'me']);
 
         // Sessions CRUD
-        // Route::apiResource('sessions', SessionController::class);
+        Route::apiResource('sessions', SessionController::class);
 
-        // Manches, Questions, etc. seront ajoutées ici
+        // Manches d'une session
+        Route::prefix('sessions/{session}')->group(function () {
+            Route::get('/rounds', [SessionRoundController::class, 'index']);
+            Route::patch('/rounds/{round}', [SessionRoundController::class, 'update']);
+
+            // Questions d'une manche
+            Route::apiResource('rounds/{round}/questions', QuestionController::class)
+                ->except(['index']);
+            Route::get('/rounds/{round}/questions', [QuestionController::class, 'index'])->name('admin.rounds.questions.index');
+
+            // Dashboard live
+            Route::get('/dashboard', [DashboardController::class, 'show']);
+
+            // Moteur de jeu
+            Route::prefix('game')->group(function () {
+                Route::post('/open-registration', [AdminGameController::class, 'openRegistration']);
+                Route::post('/close-registration', [AdminGameController::class, 'closeRegistration']);
+                Route::post('/open-preselection', [AdminGameController::class, 'openPreselection']);
+                Route::post('/select-players', [AdminGameController::class, 'selectPlayers']);
+                Route::post('/start', [AdminGameController::class, 'startSession']);
+                Route::post('/launch-question', [AdminGameController::class, 'launchQuestion']);
+                Route::post('/close-question', [AdminGameController::class, 'closeQuestion']);
+                Route::post('/reveal-answer', [AdminGameController::class, 'revealAnswer']);
+                Route::post('/next-round', [AdminGameController::class, 'nextRound']);
+                Route::post('/end', [AdminGameController::class, 'endSession']);
+            });
+        });
     });
 });
 
-// --- Routes Joueur ---
+/*
+|--------------------------------------------------------------------------
+| Routes Joueur
+|--------------------------------------------------------------------------
+*/
 Route::prefix('player')->group(function () {
-    // Inscription publique
-    // Route::post('/register', [RegistrationController::class, 'store']);
+    // Inscription (publique)
+    Route::post('/register', [RegistrationController::class, 'store']);
+    Route::get('/registrations/{registration}', [RegistrationController::class, 'show']);
 
-    // Routes authentifiées par access_token
-    // Route::middleware('auth:player')->group(function () {
-    //     Route::get('/session', [GameController::class, 'session']);
-    //     Route::post('/answer', [GameController::class, 'submitAnswer']);
-    // });
-});
+    // Questions de pré-sélection (publique — identifiées par session)
+    Route::get('/sessions/{session}/preselection/questions', [PreselectionController::class, 'questions']);
+    Route::post('/preselection/submit', [PreselectionController::class, 'submit']);
 
-// --- Routes Publiques (Projection, etc.) ---
-Route::prefix('game')->group(function () {
-    // Route::get('/projection/{code}', [ProjectionController::class, 'show']);
-    // Route::get('/sessions/{session}/status', [GameStatusController::class, 'show']);
+    // Routes protégées par token d'accès joueur
+    Route::middleware('player.token')->group(function () {
+        Route::post('/join', [PlayerGameController::class, 'join']);
+        Route::get('/status', [PlayerGameController::class, 'status']);
+        Route::post('/answer', [PlayerGameController::class, 'submitAnswer']);
+        Route::post('/hint', [PlayerGameController::class, 'useHint']);
+        Route::post('/pass-manche', [PlayerGameController::class, 'passManche']);
+    });
 });
