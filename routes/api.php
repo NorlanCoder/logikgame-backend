@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GameController as AdminGameController;
+use App\Http\Controllers\Admin\PreselectionQuestionController;
 use App\Http\Controllers\Admin\QuestionController;
 use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Admin\SessionRoundController;
@@ -44,16 +45,40 @@ Route::prefix('admin')->group(function () {
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
 
+            // Questions de pré-sélection CRUD
+            Route::apiResource('preselection-questions', PreselectionQuestionController::class)
+                ->parameters(['preselection-questions' => 'preselectionQuestion']);
+
             // Moteur de jeu
             Route::prefix('game')->group(function () {
+                // Phase pré-jeu
                 Route::post('/open-registration', [AdminGameController::class, 'openRegistration']);
                 Route::post('/close-registration', [AdminGameController::class, 'closeRegistration']);
                 Route::post('/open-preselection', [AdminGameController::class, 'openPreselection']);
                 Route::post('/select-players', [AdminGameController::class, 'selectPlayers']);
                 Route::post('/start', [AdminGameController::class, 'startSession']);
+
+                // Cycle de question
                 Route::post('/launch-question', [AdminGameController::class, 'launchQuestion']);
                 Route::post('/close-question', [AdminGameController::class, 'closeQuestion']);
                 Route::post('/reveal-answer', [AdminGameController::class, 'revealAnswer']);
+
+                // Manche 3 — Seconde Chance
+                Route::post('/launch-second-chance', [AdminGameController::class, 'launchSecondChance']);
+                Route::post('/close-second-chance', [AdminGameController::class, 'closeSecondChance']);
+
+                // Manche 5 — Top 4
+                Route::post('/finalize-top4', [AdminGameController::class, 'finalizeTop4']);
+
+                // Manches 6/7 — Duels
+                Route::post('/setup-turn-order', [AdminGameController::class, 'setupTurnOrder']);
+                Route::get('/next-turn', [AdminGameController::class, 'getNextTurn']);
+
+                // Manche 8 — Finale
+                Route::post('/reveal-finale-choices', [AdminGameController::class, 'revealFinaleChoices']);
+                Route::post('/resolve-finale', [AdminGameController::class, 'resolveFinale']);
+
+                // Navigation
                 Route::post('/next-round', [AdminGameController::class, 'nextRound']);
                 Route::post('/end', [AdminGameController::class, 'endSession']);
             });
@@ -82,5 +107,6 @@ Route::prefix('player')->group(function () {
         Route::post('/answer', [PlayerGameController::class, 'submitAnswer']);
         Route::post('/hint', [PlayerGameController::class, 'useHint']);
         Route::post('/pass-manche', [PlayerGameController::class, 'passManche']);
+        Route::post('/finale-choice', [PlayerGameController::class, 'submitFinaleChoice']);
     });
 });

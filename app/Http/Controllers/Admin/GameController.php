@@ -4,15 +4,27 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\AnswerType;
 use App\Enums\EliminationReason;
+use App\Enums\FinaleChoiceType;
+use App\Enums\FinaleScenario;
+use App\Enums\JackpotTransactionType;
 use App\Enums\QuestionStatus;
 use App\Enums\RegistrationStatus;
 use App\Enums\RoundStatus;
+use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
+use App\Models\FinaleChoice;
+use App\Models\FinalResult;
+use App\Models\JackpotTransaction;
 use App\Models\PlayerAnswer;
+use App\Models\Question;
 use App\Models\Registration;
+use App\Models\Round6PlayerJackpot;
+use App\Models\Round6TurnOrder;
+use App\Models\RoundRanking;
+use App\Models\SecondChanceQuestion;
 use App\Models\Session;
 use App\Models\SessionPlayer;
 use App\Models\SessionRound;
@@ -23,6 +35,10 @@ use Illuminate\Support\Str;
 
 class GameController extends Controller
 {
+    // ───────────────────────────────────────────────────────────
+    //  Phase pré-jeu : inscriptions, pré-sélection, démarrage
+    // ───────────────────────────────────────────────────────────
+
     /**
      * Ouvre les inscriptions pour une session.
      */
@@ -62,7 +78,6 @@ class GameController extends Controller
 
         $session->update(['status' => SessionStatus::Preselection]);
 
-        // Mettre à jour le statut des inscriptions validées
         Registration::query()
             ->where('session_id', $session->id)
             ->where('status', RegistrationStatus::Registered)
@@ -72,8 +87,7 @@ class GameController extends Controller
     }
 
     /**
-     * Sélectionne les joueurs (top N par score/vitesse) et crée les SessionPlayers.
-     * L'admin passe en option une liste de registration_ids à sélectionner.
+     * Sélectionne les joueurs et crée les SessionPlayers.
      */
     public function selectPlayers(Request $request, Session $session): JsonResponse
     {
@@ -87,7 +101,6 @@ class GameController extends Controller
         ]);
 
         DB::transaction(function () use ($validated, $session) {
-            // Réinitialiser les sélections précédentes
             Registration::query()
                 ->where('session_id', $session->id)
                 ->where('status', RegistrationStatus::Selected)
@@ -158,7 +171,6 @@ class GameController extends Controller
                 'started_at' => now(),
             ]);
 
-            // Activer tous les joueurs sélectionnés
             SessionPlayer::query()
                 ->where('session_id', $session->id)
                 ->where('status', SessionPlayerStatus::Waiting)
@@ -175,8 +187,12 @@ class GameController extends Controller
         ]);
     }
 
+    // ───────────────────────────────────────────────────────────
+    //  Cycle de question principal
+    // ───────────────────────────────────────────────────────────
+
     /**
-     * Lance une question spécifique (l'admin décide quand la question est visible).
+     * Lance une question (l'admin décide quand la question est visible).
      */
     public function launchQuestion(Request $request, Session $session): JsonResponse
     {
@@ -188,7 +204,7 @@ class GameController extends Controller
             'question_id' => ['required', 'integer', 'exists:questions,id'],
         ]);
 
-        $question = \App\Models\Question::findOrFail($validated['question_id']);
+        $question = Question::findOrFail($validated['question_id']);
 
         if ($question->status !== QuestionStatus::Pending) {
             return $this->statusError('Cette question a déjà été lancée.');
@@ -216,7 +232,8 @@ class GameController extends Controller
     }
 
     /**
-     * Clôture la question courante et calcule les éliminations.
+     * Clôture la question courante et évalue les réponses.
+     * Pour SecondChance (manche 3), les joueurs en échec ne sont PAS éliminés ici.
      */
     public function closeQuestion(Session $session): JsonResponse
     {
@@ -232,18 +249,17 @@ class GameController extends Controller
 
         $round = $session->currentRound;
         $eliminated = [];
+        $needsSecondChance = false;
+        $failedPlayerIds = [];
 
-        DB::transaction(function () use ($session, $question, $round, &$eliminated) {
+        DB::transaction(function () use ($session, $question, $round, &$eliminated, &$needsSecondChance, &$failedPlayerIds) {
             $question->update([
                 'status' => QuestionStatus::Closed,
                 'closed_at' => now(),
             ]);
 
-            // Marquer les réponses timeout (joueurs qui n'ont pas répondu)
-            $activePlayers = SessionPlayer::query()
-                ->where('session_id', $session->id)
-                ->where('status', SessionPlayerStatus::Active)
-                ->get();
+            // Déterminer quels joueurs doivent répondre (tous actifs sauf assigné à un autre joueur en duels)
+            $activePlayers = $this->getRespondingPlayers($session, $question, $round);
 
             foreach ($activePlayers as $player) {
                 $answer = PlayerAnswer::query()
@@ -253,7 +269,6 @@ class GameController extends Controller
                     ->first();
 
                 if (! $answer) {
-                    // Pas de réponse = timeout
                     PlayerAnswer::create([
                         'session_player_id' => $player->id,
                         'question_id' => $question->id,
@@ -263,22 +278,483 @@ class GameController extends Controller
                         'submitted_at' => now(),
                     ]);
                 } else {
-                    // Vérifier si la réponse est correcte
                     $isCorrect = $this->checkAnswer($question, $answer);
                     $answer->update(['is_correct' => $isCorrect]);
                 }
             }
 
-            // Appliquer les éliminations selon le type de manche
-            $eliminated = $this->applyEliminations($session, $question, $round);
+            // Résolution selon le type de manche
+            $eliminated = match ($round->round_type) {
+                RoundType::SecondChance => $this->handleSecondChanceEvaluation($session, $question, $round, $needsSecondChance, $failedPlayerIds),
+                RoundType::DuelJackpot => $this->handleDuelJackpotClose($session, $question, $round),
+                RoundType::DuelElimination => $this->handleDuelEliminationClose($session, $question, $round),
+                default => $this->applyDirectEliminations($session, $question, $round),
+            };
+        });
+
+        $response = [
+            'message' => 'Question clôturée.',
+            'eliminated_count' => count($eliminated),
+            'eliminated_player_ids' => $eliminated,
+        ];
+
+        if ($needsSecondChance) {
+            $response['needs_second_chance'] = true;
+            $response['failed_player_ids'] = $failedPlayerIds;
+        }
+
+        return response()->json($response);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Manche 3 — Seconde Chance
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Lance la question de seconde chance associée à la question principale courante.
+     */
+    public function launchSecondChance(Session $session): JsonResponse
+    {
+        if ($session->status !== SessionStatus::InProgress) {
+            return $this->statusError('La session n\'est pas en cours.');
+        }
+
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::SecondChance) {
+            return $this->statusError('Cette action n\'est disponible qu\'en manche Seconde Chance.');
+        }
+
+        $question = $session->currentQuestion;
+
+        if (! $question) {
+            return $this->statusError('Aucune question principale courante.');
+        }
+
+        $scQuestion = $question->secondChanceQuestion;
+
+        if (! $scQuestion) {
+            return $this->statusError('Aucune question de seconde chance configurée pour cette question.');
+        }
+
+        if ($scQuestion->status !== QuestionStatus::Pending) {
+            return $this->statusError('La question de seconde chance a déjà été lancée.');
+        }
+
+        $scQuestion->update([
+            'status' => QuestionStatus::Launched,
+            'launched_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Question de seconde chance lancée.',
+            'second_chance_question_id' => $scQuestion->id,
+            'duration' => $scQuestion->duration,
+        ]);
+    }
+
+    /**
+     * Clôture la question de seconde chance et élimine ceux qui échouent.
+     */
+    public function closeSecondChance(Session $session): JsonResponse
+    {
+        if ($session->status !== SessionStatus::InProgress) {
+            return $this->statusError('La session n\'est pas en cours.');
+        }
+
+        $round = $session->currentRound;
+        $question = $session->currentQuestion;
+
+        if (! $question) {
+            return $this->statusError('Aucune question principale courante.');
+        }
+
+        $scQuestion = $question->secondChanceQuestion;
+
+        if (! $scQuestion || $scQuestion->status !== QuestionStatus::Launched) {
+            return $this->statusError('Aucune question de seconde chance en cours.');
+        }
+
+        $eliminated = [];
+
+        DB::transaction(function () use ($session, $question, $scQuestion, $round, &$eliminated) {
+            $scQuestion->update([
+                'status' => QuestionStatus::Closed,
+                'closed_at' => now(),
+            ]);
+
+            // Trouver les joueurs qui avaient échoué à la question principale
+            $failedPlayerIds = PlayerAnswer::query()
+                ->where('question_id', $question->id)
+                ->where('is_correct', false)
+                ->where('is_second_chance', false)
+                ->pluck('session_player_id');
+
+            foreach ($failedPlayerIds as $sessionPlayerId) {
+                $sessionPlayer = SessionPlayer::find($sessionPlayerId);
+
+                if (! $sessionPlayer || $sessionPlayer->status !== SessionPlayerStatus::Active) {
+                    continue;
+                }
+
+                // Vérifier la réponse de seconde chance
+                $scAnswer = PlayerAnswer::query()
+                    ->where('session_player_id', $sessionPlayerId)
+                    ->where('question_id', $question->id)
+                    ->where('is_second_chance', true)
+                    ->first();
+
+                if (! $scAnswer) {
+                    // Pas de réponse = timeout sur la seconde chance
+                    PlayerAnswer::create([
+                        'session_player_id' => $sessionPlayerId,
+                        'question_id' => $question->id,
+                        'is_second_chance' => true,
+                        'second_chance_question_id' => $scQuestion->id,
+                        'is_correct' => false,
+                        'is_timeout' => true,
+                        'submitted_at' => now(),
+                    ]);
+                    $scAnswer = PlayerAnswer::query()
+                        ->where('session_player_id', $sessionPlayerId)
+                        ->where('question_id', $question->id)
+                        ->where('is_second_chance', true)
+                        ->first();
+                } else {
+                    $isCorrect = $this->checkSecondChanceAnswer($scQuestion, $scAnswer);
+                    $scAnswer->update(['is_correct' => $isCorrect]);
+                }
+
+                // Si échec à la seconde chance → élimination
+                if (! $scAnswer->is_correct) {
+                    $eliminated[] = $this->eliminatePlayer(
+                        $session,
+                        $sessionPlayer,
+                        $round,
+                        $question,
+                        EliminationReason::SecondChanceFailed,
+                    );
+                }
+            }
         });
 
         return response()->json([
-            'message' => 'Question clôturée.',
+            'message' => 'Seconde chance clôturée.',
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
         ]);
     }
+
+    // ───────────────────────────────────────────────────────────
+    //  Manche 5 — Top 4 Elimination (classement en fin de manche)
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Finalise la manche 5 : classe les joueurs et ne garde que le top 4.
+     */
+    public function finalizeTop4(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::Top4Elimination) {
+            return $this->statusError('Cette action n\'est disponible qu\'en manche Top 4.');
+        }
+
+        // Vérifier que toutes les questions sont clôturées ou révélées
+        $pendingQuestions = $round->questions()
+            ->whereNotIn('status', [QuestionStatus::Closed, QuestionStatus::Revealed])
+            ->count();
+
+        if ($pendingQuestions > 0) {
+            return $this->statusError('Toutes les questions doivent être clôturées avant la finalisation.');
+        }
+
+        $eliminated = [];
+
+        DB::transaction(function () use ($session, $round, &$eliminated) {
+            $activePlayers = SessionPlayer::query()
+                ->where('session_id', $session->id)
+                ->where('status', SessionPlayerStatus::Active)
+                ->get();
+
+            // Calculer le classement pour chaque joueur
+            $rankings = [];
+
+            foreach ($activePlayers as $player) {
+                $stats = PlayerAnswer::query()
+                    ->where('session_player_id', $player->id)
+                    ->whereHas('question', fn ($q) => $q->where('session_round_id', $round->id))
+                    ->where('is_second_chance', false)
+                    ->selectRaw('SUM(is_correct) as correct_count, SUM(CASE WHEN is_correct THEN response_time_ms ELSE 0 END) as total_time')
+                    ->first();
+
+                $rankings[] = [
+                    'session_player_id' => $player->id,
+                    'correct_count' => (int) ($stats->correct_count ?? 0),
+                    'total_time' => (int) ($stats->total_time ?? 0),
+                ];
+            }
+
+            // Trier : bonnes réponses DESC, puis temps ASC
+            usort($rankings, function ($a, $b) {
+                if ($a['correct_count'] !== $b['correct_count']) {
+                    return $b['correct_count'] - $a['correct_count'];
+                }
+
+                return $a['total_time'] - $b['total_time'];
+            });
+
+            // Enregistrer les classements et sélectionner le top 4
+            foreach ($rankings as $index => $ranking) {
+                $rank = $index + 1;
+                $isQualified = $rank <= 4;
+
+                RoundRanking::create([
+                    'session_round_id' => $round->id,
+                    'session_player_id' => $ranking['session_player_id'],
+                    'correct_answers_count' => $ranking['correct_count'],
+                    'total_response_time_ms' => $ranking['total_time'],
+                    'rank' => $rank,
+                    'is_qualified' => $isQualified,
+                ]);
+
+                if (! $isQualified) {
+                    $sessionPlayer = SessionPlayer::find($ranking['session_player_id']);
+
+                    $eliminated[] = $this->eliminatePlayer(
+                        $session,
+                        $sessionPlayer,
+                        $round,
+                        null,
+                        EliminationReason::Top4Cutoff,
+                    );
+                }
+            }
+        });
+
+        return response()->json([
+            'message' => 'Top 4 sélectionné.',
+            'eliminated_count' => count($eliminated),
+            'eliminated_player_ids' => $eliminated,
+            'rankings' => RoundRanking::query()
+                ->where('session_round_id', $round->id)
+                ->orderBy('rank')
+                ->get(['session_player_id', 'correct_answers_count', 'total_response_time_ms', 'rank', 'is_qualified']),
+        ]);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Manches 6 & 7 — Duels à tour de rôle
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Configure l'ordre de passage pour une manche duel (manches 6 ou 7).
+     */
+    public function setupTurnOrder(Request $request, Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || ! in_array($round->round_type, [RoundType::DuelJackpot, RoundType::DuelElimination])) {
+            return $this->statusError('Cette action n\'est disponible qu\'en manche Duel.');
+        }
+
+        $validated = $request->validate([
+            'player_order' => ['required', 'array', 'min:2'],
+            'player_order.*' => ['integer', 'exists:session_players,id'],
+        ]);
+
+        DB::transaction(function () use ($round, $validated) {
+            // Supprimer l'ordre précédent
+            Round6TurnOrder::query()
+                ->where('session_round_id', $round->id)
+                ->delete();
+
+            foreach ($validated['player_order'] as $index => $sessionPlayerId) {
+                Round6TurnOrder::create([
+                    'session_round_id' => $round->id,
+                    'session_player_id' => $sessionPlayerId,
+                    'turn_order' => $index + 1,
+                    'is_active' => true,
+                ]);
+            }
+
+            // Pour la manche 6, initialiser les cagnottes personnelles
+            if ($round->round_type === RoundType::DuelJackpot) {
+                Round6PlayerJackpot::query()
+                    ->where('session_round_id', $round->id)
+                    ->delete();
+
+                foreach ($validated['player_order'] as $sessionPlayerId) {
+                    Round6PlayerJackpot::create([
+                        'session_round_id' => $round->id,
+                        'session_player_id' => $sessionPlayerId,
+                        'bonus_count' => 0,
+                        'personal_jackpot' => 1000,
+                    ]);
+                }
+            }
+        });
+
+        return response()->json([
+            'message' => 'Ordre de passage configuré.',
+            'turn_order' => Round6TurnOrder::query()
+                ->where('session_round_id', $round->id)
+                ->orderBy('turn_order')
+                ->get(['session_player_id', 'turn_order', 'is_active']),
+        ]);
+    }
+
+    /**
+     * Récupère le prochain joueur dont c'est le tour dans la rotation.
+     */
+    public function getNextTurn(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || ! in_array($round->round_type, [RoundType::DuelJackpot, RoundType::DuelElimination])) {
+            return $this->statusError('Cette action n\'est disponible qu\'en manche Duel.');
+        }
+
+        $activeTurns = Round6TurnOrder::query()
+            ->where('session_round_id', $round->id)
+            ->where('is_active', true)
+            ->orderBy('turn_order')
+            ->get();
+
+        if ($activeTurns->isEmpty()) {
+            return response()->json(['message' => 'Plus de joueurs actifs.', 'finished' => true]);
+        }
+
+        // Trouver le dernier joueur ayant répondu pour déterminer le suivant
+        $lastAnsweredPlayerId = PlayerAnswer::query()
+            ->whereHas('question', fn ($q) => $q->where('session_round_id', $round->id))
+            ->orderByDesc('submitted_at')
+            ->value('session_player_id');
+
+        $nextTurn = null;
+
+        if ($lastAnsweredPlayerId) {
+            $lastTurnOrder = $activeTurns->firstWhere('session_player_id', $lastAnsweredPlayerId);
+
+            if ($lastTurnOrder) {
+                $nextTurn = $activeTurns
+                    ->where('turn_order', '>', $lastTurnOrder->turn_order)
+                    ->first();
+            }
+        }
+
+        // Si pas trouvé (début ou rebouclage), prendre le premier actif
+        if (! $nextTurn) {
+            $nextTurn = $activeTurns->first();
+        }
+
+        return response()->json([
+            'next_player_id' => $nextTurn->session_player_id,
+            'turn_order' => $nextTurn->turn_order,
+            'active_players_count' => $activeTurns->count(),
+        ]);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Manche 8 — Finale
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Révèle les choix des finalistes (continuer / abandonner).
+     */
+    public function revealFinaleChoices(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::Finale) {
+            return $this->statusError('Cette action n\'est disponible qu\'en finale.');
+        }
+
+        $choices = FinaleChoice::query()
+            ->where('session_id', $session->id)
+            ->get();
+
+        if ($choices->count() < 2) {
+            return $this->statusError('Les deux finalistes n\'ont pas encore fait leur choix.');
+        }
+
+        FinaleChoice::query()
+            ->where('session_id', $session->id)
+            ->update(['revealed' => true]);
+
+        $choices = $choices->fresh();
+
+        $bothContinue = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Continue);
+        $bothAbandon = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
+        $oneAbandons = ! $bothContinue && ! $bothAbandon;
+
+        return response()->json([
+            'message' => 'Choix révélés.',
+            'choices' => $choices->map(fn ($c) => [
+                'session_player_id' => $c->session_player_id,
+                'choice' => $c->choice,
+            ]),
+            'scenario' => $bothAbandon ? 'both_abandon' : ($oneAbandons ? 'one_abandons' : 'both_continue'),
+            'needs_final_question' => $bothContinue || $oneAbandons,
+        ]);
+    }
+
+    /**
+     * Résout la finale et calcule les gains.
+     */
+    public function resolveFinale(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::Finale) {
+            return $this->statusError('Cette action n\'est disponible qu\'en finale.');
+        }
+
+        $choices = FinaleChoice::query()
+            ->where('session_id', $session->id)
+            ->get();
+
+        if ($choices->count() < 2) {
+            return $this->statusError('Les deux finalistes doivent avoir fait leur choix.');
+        }
+
+        $results = [];
+
+        DB::transaction(function () use ($session, $round, $choices, &$results) {
+            $bothContinue = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Continue);
+            $bothAbandon = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
+
+            if ($bothAbandon) {
+                // Scénario 5 : les deux abandonnent → 5000 chacun
+                $results = $this->resolveFinaleScenario5($session, $round, $choices);
+            } elseif ($bothContinue) {
+                // Scénarios 1, 2, 3 : les deux continuent → évaluer les réponses
+                $results = $this->resolveFinaleScenarios123($session, $round, $choices);
+            } else {
+                // Scénario 4 : un abandonne
+                $results = $this->resolveFinaleScenario4($session, $round, $choices);
+            }
+
+            // Mettre à jour le statut des joueurs
+            foreach ($results as $result) {
+                $sessionPlayer = SessionPlayer::find($result['session_player_id']);
+                $sessionPlayer->update([
+                    'status' => $result['is_winner'] ? SessionPlayerStatus::FinalistWinner : SessionPlayerStatus::FinalistLoser,
+                    'final_gain' => $result['final_gain'],
+                    'personal_jackpot' => $result['final_gain'],
+                ]);
+            }
+        });
+
+        return response()->json([
+            'message' => 'Finale résolue.',
+            'results' => $results,
+        ]);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Navigation et fin
+    // ───────────────────────────────────────────────────────────
 
     /**
      * Révèle la bonne réponse.
@@ -327,7 +803,6 @@ class GameController extends Controller
             ->first();
 
         if (! $nextRound) {
-            // Plus de manches — fin de session
             $session->update([
                 'status' => SessionStatus::Ended,
                 'current_round_id' => null,
@@ -376,10 +851,38 @@ class GameController extends Controller
         return response()->json(['message' => 'Session terminée.']);
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Méthodes privées
+    // ═══════════════════════════════════════════════════════════
+
     /**
-     * Vérifie si la réponse d'un joueur est correcte.
+     * Détermine quels joueurs doivent répondre à la question.
+     * En duels, seul le joueur assigné répond.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, SessionPlayer>
      */
-    private function checkAnswer(\App\Models\Question $question, PlayerAnswer $answer): bool
+    private function getRespondingPlayers(Session $session, Question $question, SessionRound $round): \Illuminate\Database\Eloquent\Collection
+    {
+        if (in_array($round->round_type, [RoundType::DuelJackpot, RoundType::DuelElimination])) {
+            // En duels, seul le joueur assigné doit répondre
+            if ($question->assigned_player_id) {
+                return SessionPlayer::query()
+                    ->where('id', $question->assigned_player_id)
+                    ->where('status', SessionPlayerStatus::Active)
+                    ->get();
+            }
+        }
+
+        return SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Active)
+            ->get();
+    }
+
+    /**
+     * Vérifie la réponse d'un joueur pour une question principale.
+     */
+    private function checkAnswer(Question $question, PlayerAnswer $answer): bool
     {
         return match ($question->answer_type) {
             AnswerType::Qcm => $answer->selected_choice_id !== null
@@ -398,41 +901,557 @@ class GameController extends Controller
     }
 
     /**
-     * Applique les éliminations selon le type de manche.
-     *
-     * @return list<int> IDs des session_players éliminés
+     * Vérifie la réponse d'un joueur pour une question de seconde chance.
      */
-    private function applyEliminations(Session $session, \App\Models\Question $question, SessionRound $round): array
+    private function checkSecondChanceAnswer(SecondChanceQuestion $scQuestion, PlayerAnswer $answer): bool
     {
-        // Manches 1, 2, 3, 4 : élimination directe si mauvaise réponse ou timeout
-        $directEliminationRounds = [
-            \App\Enums\RoundType::SuddenDeath,
-            \App\Enums\RoundType::Hint,
-            \App\Enums\RoundType::RoundSkip,
-        ];
+        return match ($scQuestion->answer_type) {
+            AnswerType::Qcm => $answer->selected_sc_choice_id !== null
+                && $scQuestion->choices()->where('id', $answer->selected_sc_choice_id)->where('is_correct', true)->exists(),
 
-        if (! in_array($round->round_type, $directEliminationRounds)) {
-            return [];
-        }
+            AnswerType::Text => $answer->answer_value !== null
+                && strtolower(trim($this->removeAccents($answer->answer_value)))
+                === strtolower(trim($this->removeAccents($scQuestion->correct_answer))),
 
-        $wrongAnswerPlayers = PlayerAnswer::query()
+            AnswerType::Number => $answer->answer_value !== null
+                && is_numeric($answer->answer_value)
+                && abs((float) $answer->answer_value - (float) $scQuestion->correct_answer) <= 0.0001,
+
+            default => false,
+        };
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Logique Seconde Chance (manche 3)
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Évalue les réponses en manche SecondChance.
+     * Ne fait PAS d'élimination directe — signale qu'une seconde chance est nécessaire.
+     *
+     * @return list<int>
+     */
+    private function handleSecondChanceEvaluation(
+        Session $session,
+        Question $question,
+        SessionRound $round,
+        bool &$needsSecondChance,
+        array &$failedPlayerIds,
+    ): array {
+        $wrongAnswerPlayerIds = PlayerAnswer::query()
             ->where('question_id', $question->id)
             ->where('is_correct', false)
             ->where('is_second_chance', false)
             ->pluck('session_player_id')
             ->toArray();
 
-        if (empty($wrongAnswerPlayers)) {
+        // Filtrer les joueurs encore actifs
+        $failedPlayerIds = SessionPlayer::query()
+            ->whereIn('id', $wrongAnswerPlayerIds)
+            ->where('status', SessionPlayerStatus::Active)
+            ->pluck('id')
+            ->toArray();
+
+        $needsSecondChance = ! empty($failedPlayerIds) && $question->secondChanceQuestion !== null;
+
+        return []; // Pas d'élimination directe en manche 3
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Logique Duel Jackpot (manche 6)
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Traite la clôture d'une question en manche Duel Jackpot.
+     * Bonne réponse = +1000 bonus. Mauvaise = élimination avec cagnotte perso.
+     *
+     * @return list<int>
+     */
+    private function handleDuelJackpotClose(Session $session, Question $question, SessionRound $round): array
+    {
+        $eliminated = [];
+
+        if (! $question->assigned_player_id) {
+            return [];
+        }
+
+        $answer = PlayerAnswer::query()
+            ->where('session_player_id', $question->assigned_player_id)
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', false)
+            ->first();
+
+        if (! $answer) {
+            return [];
+        }
+
+        $sessionPlayer = SessionPlayer::find($question->assigned_player_id);
+
+        if (! $sessionPlayer || $sessionPlayer->status !== SessionPlayerStatus::Active) {
+            return [];
+        }
+
+        $playerJackpot = Round6PlayerJackpot::query()
+            ->where('session_round_id', $round->id)
+            ->where('session_player_id', $sessionPlayer->id)
+            ->first();
+
+        if ($answer->is_correct) {
+            // Bonne réponse : +1000 bonus à la cagnotte personnelle
+            if ($playerJackpot) {
+                $playerJackpot->increment('bonus_count');
+                $playerJackpot->increment('personal_jackpot', 1000);
+            }
+
+            $this->logJackpotTransaction(
+                $session,
+                $sessionPlayer,
+                $round,
+                JackpotTransactionType::Round6Bonus,
+                1000,
+                'Bonus +1000 pour bonne réponse en manche 6',
+            );
+        } else {
+            // Mauvaise réponse ou timeout : éliminé, repart avec sa cagnotte perso
+            $departedWith = $playerJackpot?->personal_jackpot ?? 1000;
+
+            if ($playerJackpot) {
+                $playerJackpot->update(['departed_with' => $departedWith]);
+            }
+
+            $sessionPlayer->update([
+                'status' => SessionPlayerStatus::Eliminated,
+                'eliminated_at' => now(),
+                'elimination_reason' => $answer->is_timeout ? EliminationReason::Timeout : EliminationReason::DuelLost,
+                'eliminated_in_round_id' => $round->id,
+                'final_gain' => $departedWith,
+                'personal_jackpot' => $departedWith,
+            ]);
+
+            Elimination::create([
+                'session_player_id' => $sessionPlayer->id,
+                'session_round_id' => $round->id,
+                'question_id' => $question->id,
+                'reason' => $answer->is_timeout ? EliminationReason::Timeout : EliminationReason::DuelLost,
+                'capital_transferred' => 0,
+                'eliminated_at' => now(),
+            ]);
+
+            // Désactiver dans l'ordre de passage
+            Round6TurnOrder::query()
+                ->where('session_round_id', $round->id)
+                ->where('session_player_id', $sessionPlayer->id)
+                ->update(['is_active' => false]);
+
+            $this->logJackpotTransaction(
+                $session,
+                $sessionPlayer,
+                $round,
+                JackpotTransactionType::Round6Departure,
+                -$departedWith,
+                "Départ manche 6 avec {$departedWith} points",
+            );
+
+            $session->decrement('players_remaining');
+            $eliminated[] = $sessionPlayer->id;
+        }
+
+        return $eliminated;
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Logique Duel Elimination (manche 7)
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Traite la clôture d'une question en manche Duel Élimination.
+     * Mauvaise réponse = élimination directe, mais le joueur accède quand même à la finale.
+     *
+     * @return list<int>
+     */
+    private function handleDuelEliminationClose(Session $session, Question $question, SessionRound $round): array
+    {
+        $eliminated = [];
+
+        if (! $question->assigned_player_id) {
+            return [];
+        }
+
+        $answer = PlayerAnswer::query()
+            ->where('session_player_id', $question->assigned_player_id)
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', false)
+            ->first();
+
+        if (! $answer || $answer->is_correct) {
+            return [];
+        }
+
+        $sessionPlayer = SessionPlayer::find($question->assigned_player_id);
+
+        if (! $sessionPlayer || $sessionPlayer->status !== SessionPlayerStatus::Active) {
+            return [];
+        }
+
+        // En manche 7, le perdant est éliminé mais les deux accèdent à la finale
+        // Le perdant et le gagnant deviennent Finalist
+        $sessionPlayer->update([
+            'status' => SessionPlayerStatus::Eliminated,
+            'eliminated_at' => now(),
+            'elimination_reason' => $answer->is_timeout ? EliminationReason::Timeout : EliminationReason::DuelLost,
+            'eliminated_in_round_id' => $round->id,
+        ]);
+
+        Elimination::create([
+            'session_player_id' => $sessionPlayer->id,
+            'session_round_id' => $round->id,
+            'question_id' => $question->id,
+            'reason' => $answer->is_timeout ? EliminationReason::Timeout : EliminationReason::DuelLost,
+            'capital_transferred' => 0,
+            'eliminated_at' => now(),
+        ]);
+
+        Round6TurnOrder::query()
+            ->where('session_round_id', $round->id)
+            ->where('session_player_id', $sessionPlayer->id)
+            ->update(['is_active' => false]);
+
+        $session->decrement('players_remaining');
+        $eliminated[] = $sessionPlayer->id;
+
+        // Vérifier s'il ne reste que 2 joueurs → les marquer comme finalistes
+        $remainingActive = Round6TurnOrder::query()
+            ->where('session_round_id', $round->id)
+            ->where('is_active', true)
+            ->count();
+
+        if ($remainingActive <= 2) {
+            $finalistIds = Round6TurnOrder::query()
+                ->where('session_round_id', $round->id)
+                ->where('is_active', true)
+                ->pluck('session_player_id');
+
+            SessionPlayer::query()
+                ->whereIn('id', $finalistIds)
+                ->update(['status' => SessionPlayerStatus::Finalist]);
+        }
+
+        return $eliminated;
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Logique Finale (manche 8)
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Scénario 5 : les deux abandonnent → 5000 chacun.
+     *
+     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
+     */
+    private function resolveFinaleScenario5(Session $session, SessionRound $round, $choices): array
+    {
+        $results = [];
+
+        foreach ($choices as $index => $choice) {
+            $gain = 5000;
+
+            FinalResult::create([
+                'session_id' => $session->id,
+                'session_player_id' => $choice->session_player_id,
+                'finale_scenario' => FinaleScenario::BothAbandon,
+                'final_gain' => $gain,
+                'is_winner' => false,
+                'position' => $index + 1,
+            ]);
+
+            $this->logJackpotTransaction(
+                $session,
+                SessionPlayer::find($choice->session_player_id),
+                $round,
+                JackpotTransactionType::FinaleAbandonShare,
+                -$gain,
+                'Finale : les deux abandonnent — 5000 chacun',
+            );
+
+            $results[] = [
+                'session_player_id' => $choice->session_player_id,
+                'finale_scenario' => FinaleScenario::BothAbandon,
+                'final_gain' => $gain,
+                'is_winner' => false,
+                'position' => $index + 1,
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Scénario 4 : un abandonne, l'autre continue et répond seul.
+     *
+     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
+     */
+    private function resolveFinaleScenario4(Session $session, SessionRound $round, $choices): array
+    {
+        $results = [];
+        $abandoner = $choices->firstWhere('choice', FinaleChoiceType::Abandon);
+        $continuer = $choices->firstWhere('choice', FinaleChoiceType::Continue);
+
+        // L'abandonneur repart avec 2000
+        $abandonGain = 2000;
+
+        FinalResult::create([
+            'session_id' => $session->id,
+            'session_player_id' => $abandoner->session_player_id,
+            'finale_scenario' => FinaleScenario::OneAbandons,
+            'final_gain' => $abandonGain,
+            'is_winner' => false,
+            'position' => 2,
+        ]);
+
+        $this->logJackpotTransaction(
+            $session,
+            SessionPlayer::find($abandoner->session_player_id),
+            $round,
+            JackpotTransactionType::FinaleAbandonShare,
+            -$abandonGain,
+            'Finale : abandonneur repart avec 2000',
+        );
+
+        $results[] = [
+            'session_player_id' => $abandoner->session_player_id,
+            'finale_scenario' => FinaleScenario::OneAbandons,
+            'final_gain' => $abandonGain,
+            'is_winner' => false,
+            'position' => 2,
+        ];
+
+        // Le continueur : évaluer sa réponse à la question finale
+        $finalQuestion = $round->questions()->orderByDesc('display_order')->first();
+        $continuerGain = 0;
+        $isWinner = false;
+
+        if ($finalQuestion) {
+            $answer = PlayerAnswer::query()
+                ->where('session_player_id', $continuer->session_player_id)
+                ->where('question_id', $finalQuestion->id)
+                ->where('is_second_chance', false)
+                ->first();
+
+            if ($answer && $answer->is_correct) {
+                $continuerGain = $session->jackpot;
+                $isWinner = true;
+            } else {
+                $continuerGain = 0;
+            }
+        }
+
+        FinalResult::create([
+            'session_id' => $session->id,
+            'session_player_id' => $continuer->session_player_id,
+            'finale_scenario' => FinaleScenario::OneAbandons,
+            'final_gain' => $continuerGain,
+            'is_winner' => $isWinner,
+            'position' => 1,
+        ]);
+
+        if ($continuerGain > 0) {
+            $this->logJackpotTransaction(
+                $session,
+                SessionPlayer::find($continuer->session_player_id),
+                $round,
+                JackpotTransactionType::FinaleWin,
+                -$continuerGain,
+                "Finale : gagnant remporte {$continuerGain}",
+            );
+        }
+
+        $results[] = [
+            'session_player_id' => $continuer->session_player_id,
+            'finale_scenario' => FinaleScenario::OneAbandons,
+            'final_gain' => $continuerGain,
+            'is_winner' => $isWinner,
+            'position' => 1,
+        ];
+
+        return $results;
+    }
+
+    /**
+     * Scénarios 1, 2, 3 : les deux continuent.
+     *
+     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
+     */
+    private function resolveFinaleScenarios123(Session $session, SessionRound $round, $choices): array
+    {
+        $results = [];
+        $finalQuestion = $round->questions()->orderByDesc('display_order')->first();
+
+        $playerResults = [];
+
+        foreach ($choices as $choice) {
+            $answer = null;
+
+            if ($finalQuestion) {
+                $answer = PlayerAnswer::query()
+                    ->where('session_player_id', $choice->session_player_id)
+                    ->where('question_id', $finalQuestion->id)
+                    ->where('is_second_chance', false)
+                    ->first();
+            }
+
+            $playerResults[] = [
+                'session_player_id' => $choice->session_player_id,
+                'is_correct' => $answer?->is_correct ?? false,
+            ];
+        }
+
+        $correctCount = collect($playerResults)->where('is_correct', true)->count();
+
+        if ($correctCount === 2) {
+            // Scénario 1 : les deux réussissent → partage de la cagnotte
+            $share = (int) floor($session->jackpot / 2);
+
+            foreach ($playerResults as $index => $pr) {
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
+                    'final_gain' => $share,
+                    'is_winner' => true,
+                    'position' => $index + 1,
+                ]);
+
+                $this->logJackpotTransaction(
+                    $session,
+                    SessionPlayer::find($pr['session_player_id']),
+                    $round,
+                    JackpotTransactionType::FinaleShare,
+                    -$share,
+                    "Finale : partage — {$share} chacun",
+                );
+
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
+                    'final_gain' => $share,
+                    'is_winner' => true,
+                    'position' => $index + 1,
+                ];
+            }
+        } elseif ($correctCount === 1) {
+            // Scénario 2 : un seul réussit → il remporte la totalité
+            foreach ($playerResults as $index => $pr) {
+                $gain = $pr['is_correct'] ? $session->jackpot : 0;
+
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'final_gain' => $gain,
+                    'is_winner' => $pr['is_correct'],
+                    'position' => $pr['is_correct'] ? 1 : 2,
+                ]);
+
+                if ($gain > 0) {
+                    $this->logJackpotTransaction(
+                        $session,
+                        SessionPlayer::find($pr['session_player_id']),
+                        $round,
+                        JackpotTransactionType::FinaleWin,
+                        -$gain,
+                        "Finale : gagnant remporte {$gain}",
+                    );
+                }
+
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'final_gain' => $gain,
+                    'is_winner' => $pr['is_correct'],
+                    'position' => $pr['is_correct'] ? 1 : 2,
+                ];
+            }
+        } else {
+            // Scénario 3 : les deux échouent → chacun repart avec 2000
+            foreach ($playerResults as $index => $pr) {
+                $gain = 2000;
+
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => $index + 1,
+                ]);
+
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => $index + 1,
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //  Élimination et traçabilité
+    // ───────────────────────────────────────────────────────────
+
+    /**
+     * Applique les éliminations directes (manches 1, 2, 4).
+     * En manche 4 (RoundSkip), les joueurs ayant "passé" ne sont PAS éliminés
+     * (c'est géré par le Player/GameController::passManche).
+     *
+     * @return list<int> IDs des session_players éliminés
+     */
+    private function applyDirectEliminations(Session $session, Question $question, SessionRound $round): array
+    {
+        $directEliminationRounds = [
+            RoundType::SuddenDeath,
+            RoundType::Hint,
+            RoundType::RoundSkip,
+        ];
+
+        if (! in_array($round->round_type, $directEliminationRounds)) {
+            // Manche 5 → pas d'élimination par question, c'est en fin de manche (finalizeTop4)
+            return [];
+        }
+
+        $wrongAnswerPlayerIds = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_correct', false)
+            ->where('is_second_chance', false)
+            ->pluck('session_player_id')
+            ->toArray();
+
+        if (empty($wrongAnswerPlayerIds)) {
             return [];
         }
 
         $eliminated = [];
 
-        foreach ($wrongAnswerPlayers as $sessionPlayerId) {
+        foreach ($wrongAnswerPlayerIds as $sessionPlayerId) {
             $sessionPlayer = SessionPlayer::find($sessionPlayerId);
 
             if (! $sessionPlayer || $sessionPlayer->status !== SessionPlayerStatus::Active) {
                 continue;
+            }
+
+            // En manche 4 (RoundSkip), vérifier si le joueur a passé sa manche → il n'est pas éliminé
+            if ($round->round_type === RoundType::RoundSkip) {
+                $hasSkipped = \App\Models\RoundSkip::query()
+                    ->where('session_player_id', $sessionPlayerId)
+                    ->where('session_round_id', $round->id)
+                    ->exists();
+
+                if ($hasSkipped) {
+                    continue;
+                }
             }
 
             $reason = PlayerAnswer::query()
@@ -442,32 +1461,78 @@ class GameController extends Controller
                 ? EliminationReason::Timeout
                 : EliminationReason::WrongAnswer;
 
-            $capitalTransferred = $sessionPlayer->capital;
-
-            $sessionPlayer->update([
-                'status' => SessionPlayerStatus::Eliminated,
-                'eliminated_at' => now(),
-                'elimination_reason' => $reason,
-                'eliminated_in_round_id' => $round->id,
-            ]);
-
-            Elimination::create([
-                'session_player_id' => $sessionPlayer->id,
-                'session_round_id' => $round->id,
-                'question_id' => $question->id,
-                'reason' => $reason,
-                'capital_transferred' => $capitalTransferred,
-                'eliminated_at' => now(),
-            ]);
-
-            // Ajouter le capital à la cagnotte
-            $session->increment('jackpot', $capitalTransferred);
-            $session->decrement('players_remaining');
-
-            $eliminated[] = $sessionPlayerId;
+            $eliminated[] = $this->eliminatePlayer($session, $sessionPlayer, $round, $question, $reason);
         }
 
         return $eliminated;
+    }
+
+    /**
+     * Élimine un joueur et transfère son capital à la cagnotte.
+     */
+    private function eliminatePlayer(
+        Session $session,
+        SessionPlayer $sessionPlayer,
+        SessionRound $round,
+        ?Question $question,
+        EliminationReason $reason,
+    ): int {
+        $capitalTransferred = $sessionPlayer->capital;
+
+        $sessionPlayer->update([
+            'status' => SessionPlayerStatus::Eliminated,
+            'eliminated_at' => now(),
+            'elimination_reason' => $reason,
+            'eliminated_in_round_id' => $round->id,
+        ]);
+
+        Elimination::create([
+            'session_player_id' => $sessionPlayer->id,
+            'session_round_id' => $round->id,
+            'question_id' => $question?->id,
+            'reason' => $reason,
+            'capital_transferred' => $capitalTransferred,
+            'eliminated_at' => now(),
+        ]);
+
+        $this->logJackpotTransaction(
+            $session,
+            $sessionPlayer,
+            $round,
+            JackpotTransactionType::Elimination,
+            $capitalTransferred,
+            "Élimination ({$reason->value}) — {$capitalTransferred} transférés à la cagnotte",
+        );
+
+        $session->increment('jackpot', $capitalTransferred);
+        $session->decrement('players_remaining');
+
+        return $sessionPlayer->id;
+    }
+
+    /**
+     * Enregistre une transaction de cagnotte pour la traçabilité.
+     */
+    private function logJackpotTransaction(
+        Session $session,
+        ?SessionPlayer $sessionPlayer,
+        SessionRound $round,
+        JackpotTransactionType $type,
+        int $amount,
+        string $description,
+    ): void {
+        $jackpotBefore = $session->jackpot;
+
+        JackpotTransaction::create([
+            'session_id' => $session->id,
+            'session_player_id' => $sessionPlayer?->id,
+            'session_round_id' => $round->id,
+            'transaction_type' => $type,
+            'amount' => $amount,
+            'jackpot_before' => $jackpotBefore,
+            'jackpot_after' => $jackpotBefore + $amount,
+            'description' => $description,
+        ]);
     }
 
     /**
