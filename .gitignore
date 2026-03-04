@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+tests_err.txt
+tests_out.txt
+tests_output.txt
