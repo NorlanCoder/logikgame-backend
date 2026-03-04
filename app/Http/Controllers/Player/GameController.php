@@ -6,6 +6,7 @@ use App\Enums\FinaleChoiceType;
 use App\Enums\QuestionStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
+use App\Events\HintApplied;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Player\SubmitAnswerRequest;
 use App\Http\Resources\QuestionResource;
@@ -213,17 +214,21 @@ class GameController extends Controller
             'activated_at' => now(),
         ]);
 
+        $hintData = [
+            'hint_type' => $hint->hint_type,
+            'removed_choice_ids' => $hint->removed_choice_ids,
+            'revealed_letters' => $hint->revealed_letters,
+            'range_hint_text' => $hint->range_hint_text,
+            'range_min' => $hint->range_min,
+            'range_max' => $hint->range_max,
+            'time_penalty_seconds' => $hint->time_penalty_seconds,
+        ];
+
+        event(new HintApplied($sessionPlayer, $question->id, $hintData));
+
         return response()->json([
             'message' => 'Indice activé.',
-            'hint' => [
-                'hint_type' => $hint->hint_type,
-                'removed_choice_ids' => $hint->removed_choice_ids,
-                'revealed_letters' => $hint->revealed_letters,
-                'range_hint_text' => $hint->range_hint_text,
-                'range_min' => $hint->range_min,
-                'range_max' => $hint->range_max,
-                'time_penalty_seconds' => $hint->time_penalty_seconds,
-            ],
+            'hint' => $hintData,
         ]);
     }
 

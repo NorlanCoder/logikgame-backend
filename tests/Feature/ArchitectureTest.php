@@ -49,3 +49,15 @@ arch('controllers should not use DB facade directly')
         'App\Http\Controllers\Player\PreselectionController',
         'App\Http\Controllers\Player\RegistrationController',
     ]);
+
+arch('events should implement ShouldBroadcast')
+    ->expect('App\Events')
+    ->toImplement('Illuminate\Contracts\Broadcasting\ShouldBroadcast');
+
+arch('notifications should implement ShouldQueue')
+    ->expect('App\Notifications')
+    ->toImplement('Illuminate\Contracts\Queue\ShouldQueue');
+
+arch('notifications should have Notification suffix')
+    ->expect('App\Notifications')
+    ->toExtend('Illuminate\Notifications\Notification');

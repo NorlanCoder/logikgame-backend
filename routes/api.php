@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\SessionRoundController;
 use App\Http\Controllers\Player\GameController as PlayerGameController;
 use App\Http\Controllers\Player\PreselectionController;
 use App\Http\Controllers\Player\RegistrationController;
+use App\Http\Controllers\Projection\ProjectionController;
 use Illuminate\Support\Facades\Route;
 
 // --- Santé de l'API ---
@@ -44,6 +45,9 @@ Route::prefix('admin')->group(function () {
 
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
+
+            // Projection — générer un code d'accès
+            Route::post('/projection/generate', [ProjectionController::class, 'generateCode']);
 
             // Questions de pré-sélection CRUD
             Route::apiResource('preselection-questions', PreselectionQuestionController::class)
@@ -109,4 +113,14 @@ Route::prefix('player')->group(function () {
         Route::post('/pass-manche', [PlayerGameController::class, 'passManche']);
         Route::post('/finale-choice', [PlayerGameController::class, 'submitFinaleChoice']);
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Routes Projection (écran public)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('projection')->group(function () {
+    Route::post('/authenticate', [ProjectionController::class, 'authenticate']);
+    Route::get('/{accessCode}/sync', [ProjectionController::class, 'sync']);
 });

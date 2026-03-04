@@ -13,6 +13,14 @@ use App\Enums\RoundStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
 use App\Enums\SessionStatus;
+use App\Events\AnswerRevealed;
+use App\Events\GameEnded;
+use App\Events\JackpotUpdated;
+use App\Events\PlayerEliminated;
+use App\Events\QuestionClosed;
+use App\Events\QuestionLaunched;
+use App\Events\RoundEnded;
+use App\Events\RoundStarted;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
 use App\Models\FinaleChoice;
@@ -28,6 +36,8 @@ use App\Models\SecondChanceQuestion;
 use App\Models\Session;
 use App\Models\SessionPlayer;
 use App\Models\SessionRound;
+use App\Notifications\PlayerRejected;
+use App\Notifications\PlayerSelected;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -135,6 +145,27 @@ class GameController extends Controller
             ]);
         });
 
+        // Notifier les joueurs sélectionnés
+        $selectedPlayers = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->with('player')
+            ->get();
+
+        foreach ($selectedPlayers as $sessionPlayer) {
+            $sessionPlayer->player->notify(new PlayerSelected($session, $sessionPlayer));
+        }
+
+        // Notifier les joueurs rejetés
+        $rejectedRegistrations = Registration::query()
+            ->where('session_id', $session->id)
+            ->where('status', RegistrationStatus::Rejected)
+            ->with('player')
+            ->get();
+
+        foreach ($rejectedRegistrations as $registration) {
+            $registration->player->notify(new PlayerRejected($session));
+        }
+
         return response()->json([
             'message' => count($validated['registration_ids']).' joueurs sélectionnés.',
             'players_count' => count($validated['registration_ids']),
@@ -176,6 +207,14 @@ class GameController extends Controller
                 ->where('status', SessionPlayerStatus::Waiting)
                 ->update(['status' => SessionPlayerStatus::Active]);
         });
+
+        event(new RoundStarted(
+            $session,
+            $firstRound->round_number,
+            $firstRound->name,
+            $firstRound->round_type->value,
+            $firstRound->rules_description,
+        ));
 
         return response()->json([
             'message' => 'Session démarrée.',
@@ -222,6 +261,8 @@ class GameController extends Controller
 
             $session->update(['current_question_id' => $question->id]);
         });
+
+        event(new QuestionLaunched($session, $question));
 
         return response()->json([
             'message' => 'Question lancée.',
@@ -297,6 +338,29 @@ class GameController extends Controller
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
         ];
+
+        // Diffuser les événements temps réel
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'wrong_answer',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        event(new QuestionClosed(
+            $session,
+            $question->id,
+            PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->count(),
+            PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->where('is_correct', true)->count(),
+            count($eliminated),
+        ));
 
         if ($needsSecondChance) {
             $response['needs_second_chance'] = true;
@@ -772,6 +836,14 @@ class GameController extends Controller
             'revealed_at' => now(),
         ]);
 
+        $choicesData = $question->choices->map(fn ($c) => [
+            'id' => $c->id,
+            'label' => $c->label,
+            'is_correct' => $c->is_correct,
+        ])->toArray();
+
+        event(new AnswerRevealed($session, $question->id, $question->correct_answer, $choicesData));
+
         return response()->json([
             'message' => 'Réponse révélée.',
             'correct_answer' => $question->correct_answer,
@@ -794,6 +866,14 @@ class GameController extends Controller
                 'status' => RoundStatus::Completed,
                 'ended_at' => now(),
             ]);
+
+            event(new RoundEnded(
+                $session,
+                $currentRound->round_number,
+                $currentRound->name,
+                $session->players_remaining,
+                $session->jackpot,
+            ));
         }
 
         $nextRound = $session->rounds()
@@ -823,6 +903,14 @@ class GameController extends Controller
             'current_question_id' => null,
         ]);
 
+        event(new RoundStarted(
+            $session,
+            $nextRound->round_number,
+            $nextRound->name,
+            $nextRound->round_type->value,
+            $nextRound->rules_description,
+        ));
+
         return response()->json([
             'message' => 'Passage à la manche '.$nextRound->round_number.'.',
             'current_round' => [
@@ -847,6 +935,17 @@ class GameController extends Controller
             'status' => SessionStatus::Ended,
             'ended_at' => now(),
         ]);
+
+        $winners = FinalResult::query()
+            ->where('session_id', $session->id)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn ($r) => [
+                'pseudo' => $r->sessionPlayer->player->pseudo ?? 'Joueur',
+                'final_gain' => $r->gain,
+            ])->toArray();
+
+        event(new GameEnded($session, $session->jackpot, $winners));
 
         return response()->json(['message' => 'Session terminée.']);
     }

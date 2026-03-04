@@ -10,6 +10,7 @@ use App\Http\Resources\RegistrationResource;
 use App\Models\Player;
 use App\Models\Registration;
 use App\Models\Session;
+use App\Notifications\RegistrationConfirmed;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -80,7 +81,9 @@ class RegistrationController extends Controller
             ], 200);
         }
 
-        $result['registration']->load('player');
+        $result['registration']->load(['player', 'session']);
+
+        $result['registration']->player->notify(new RegistrationConfirmed($result['registration']));
 
         return response()->json(
             new RegistrationResource($result['registration']),
