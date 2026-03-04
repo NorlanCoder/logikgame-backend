@@ -9,3 +9,5 @@ P2	Tests Pest	Aucun test métier écrit
 P3	Projection publique	Controller pour la vue projection en temps réel
 P3	Notifications (emails)	Confirmation d'inscription, sélection, rejet
 P3	Événements / Broadcasting	Pour le temps réel (WebSocket)
+
+

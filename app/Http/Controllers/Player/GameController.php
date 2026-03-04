@@ -27,18 +27,13 @@ class GameController extends Controller
      */
     public function join(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'access_token' => ['required', 'string'],
-        ]);
-
-        $sessionPlayer = SessionPlayer::query()
-            ->where('access_token', $validated['access_token'])
-            ->with(['session', 'player'])
-            ->first();
+        $sessionPlayer = $this->resolveSessionPlayer($request);
 
         if (! $sessionPlayer) {
             return response()->json(['message' => 'Token d\'accès invalide.'], 401);
         }
+
+        $sessionPlayer->load('player');
 
         $sessionPlayer->update([
             'is_connected' => true,
@@ -257,6 +252,10 @@ class GameController extends Controller
 
         if ($alreadySkipped) {
             return response()->json(['message' => 'Vous avez déjà passé cette manche.'], 422);
+        }
+
+        if ($sessionPlayer->capital < 1000) {
+            return response()->json(['message' => 'Capital insuffisant pour passer cette manche (1 000 requis).'], 422);
         }
 
         DB::transaction(function () use ($sessionPlayer, $round, $session) {

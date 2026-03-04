@@ -11,13 +11,14 @@ use App\Http\Resources\QuestionResource;
 use App\Models\Question;
 use App\Models\QuestionChoice;
 use App\Models\QuestionHint;
+use App\Models\Session;
 use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class QuestionController extends Controller
 {
-    public function index(SessionRound $round): AnonymousResourceCollection
+    public function index(Session $session, SessionRound $round): AnonymousResourceCollection
     {
         $questions = $round->questions()
             ->withCount('choices')
@@ -26,7 +27,7 @@ class QuestionController extends Controller
         return QuestionResource::collection($questions);
     }
 
-    public function store(StoreQuestionRequest $request, SessionRound $round): JsonResponse
+    public function store(StoreQuestionRequest $request, Session $session, SessionRound $round): JsonResponse
     {
         $nextOrder = $round->questions()->max('display_order') + 1;
 
@@ -69,14 +70,14 @@ class QuestionController extends Controller
         );
     }
 
-    public function show(SessionRound $round, Question $question): QuestionResource
+    public function show(Session $session, SessionRound $round, Question $question): QuestionResource
     {
         $question->load(['choices', 'hint']);
 
         return new QuestionResource($question);
     }
 
-    public function update(UpdateQuestionRequest $request, SessionRound $round, Question $question): JsonResponse
+    public function update(UpdateQuestionRequest $request, Session $session, SessionRound $round, Question $question): JsonResponse
     {
         if ($question->status !== QuestionStatus::Pending) {
             return response()->json([
@@ -89,7 +90,7 @@ class QuestionController extends Controller
         return response()->json(new QuestionResource($question->load(['choices', 'hint'])));
     }
 
-    public function destroy(SessionRound $round, Question $question): JsonResponse
+    public function destroy(Session $session, SessionRound $round, Question $question): JsonResponse
     {
         if ($question->status !== QuestionStatus::Pending) {
             return response()->json([
