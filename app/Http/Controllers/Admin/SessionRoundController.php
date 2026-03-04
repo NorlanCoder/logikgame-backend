@@ -9,9 +9,23 @@ use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use OpenApi\Attributes as OA;
 
 class SessionRoundController extends Controller
 {
+    #[OA\Get(
+        path: '/admin/sessions/{session}/rounds',
+        summary: 'Lister les manches',
+        description: 'Retourne les 8 manches d\'une session avec le nombre de questions.',
+        security: [['sanctum' => []]],
+        tags: ['Rounds'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Liste des manches'),
+        ],
+    )]
     public function index(Session $session): AnonymousResourceCollection
     {
         $rounds = $session->rounds()
@@ -21,6 +35,30 @@ class SessionRoundController extends Controller
         return SessionRoundResource::collection($rounds);
     }
 
+    #[OA\Patch(
+        path: '/admin/sessions/{session}/rounds/{round}',
+        summary: 'Modifier une manche',
+        description: 'Met à jour le nom, l\'activation ou la description d\'une manche. Les manches 5-8 ne peuvent pas être désactivées.',
+        security: [['sanctum' => []]],
+        tags: ['Rounds'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        requestBody: new OA\RequestBody(
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'is_active', type: 'boolean'),
+                    new OA\Property(property: 'name', type: 'string'),
+                    new OA\Property(property: 'rules_description', type: 'string', nullable: true),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Manche modifiée'),
+            new OA\Response(response: 422, description: 'Contrainte métier violée'),
+        ],
+    )]
     public function update(Request $request, Session $session, SessionRound $round): JsonResponse
     {
         $validated = $request->validate([

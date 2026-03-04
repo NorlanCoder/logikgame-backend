@@ -13,6 +13,7 @@ use App\Models\Session;
 use App\Notifications\RegistrationConfirmed;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class RegistrationController extends Controller
 {
@@ -20,6 +21,29 @@ class RegistrationController extends Controller
      * Inscrit un joueur à une session.
      * Crée le joueur si inconnu, ou réutilise le profil existant.
      */
+    #[OA\Post(
+        path: '/player/register',
+        summary: 'Inscrire un joueur à une session',
+        tags: ['Player Registration'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['session_id', 'full_name', 'email', 'phone', 'pseudo'],
+                properties: [
+                    new OA\Property(property: 'session_id', type: 'integer'),
+                    new OA\Property(property: 'full_name', type: 'string'),
+                    new OA\Property(property: 'email', type: 'string', format: 'email'),
+                    new OA\Property(property: 'phone', type: 'string'),
+                    new OA\Property(property: 'pseudo', type: 'string'),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Inscription créée'),
+            new OA\Response(response: 200, description: 'Déjà inscrit'),
+            new OA\Response(response: 422, description: 'Inscriptions fermées ou validation échouée'),
+        ],
+    )]
     public function store(StoreRegistrationRequest $request): JsonResponse
     {
         $session = Session::findOrFail($request->session_id);
@@ -94,6 +118,15 @@ class RegistrationController extends Controller
     /**
      * Récupère le statut d'une inscription par son ID.
      */
+    #[OA\Get(
+        path: '/player/registrations/{registration}',
+        summary: 'Voir le statut d\'une inscription',
+        tags: ['Player Registration'],
+        parameters: [new OA\Parameter(name: 'registration', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Détails de l\'inscription'),
+        ],
+    )]
     public function show(Registration $registration): RegistrationResource
     {
         $registration->load(['session:id,name,status,scheduled_at', 'player:id,full_name,pseudo']);

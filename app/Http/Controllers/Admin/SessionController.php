@@ -14,9 +14,21 @@ use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use OpenApi\Attributes as OA;
 
 class SessionController extends Controller
 {
+    #[OA\Get(
+        path: '/admin/sessions',
+        summary: 'Lister les sessions',
+        description: 'Retourne toutes les sessions de l\'admin connecté.',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        responses: [
+            new OA\Response(response: 200, description: 'Liste des sessions'),
+            new OA\Response(response: 401, description: 'Non authentifié'),
+        ],
+    )]
     public function index(Request $request): AnonymousResourceCollection
     {
         $sessions = Session::query()
@@ -28,6 +40,30 @@ class SessionController extends Controller
         return SessionResource::collection($sessions);
     }
 
+    #[OA\Post(
+        path: '/admin/sessions',
+        summary: 'Créer une session',
+        description: 'Crée une nouvelle session de jeu avec 8 manches par défaut.',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['name', 'scheduled_at', 'max_players'],
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'LOGIK S1E01'),
+                    new OA\Property(property: 'description', type: 'string', nullable: true),
+                    new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
+                    new OA\Property(property: 'max_players', type: 'integer', example: 100),
+                    new OA\Property(property: 'cover_image_url', type: 'string', nullable: true),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Session créée'),
+            new OA\Response(response: 422, description: 'Validation échouée'),
+        ],
+    )]
     public function store(StoreSessionRequest $request): JsonResponse
     {
         $session = Session::create([
@@ -45,6 +81,20 @@ class SessionController extends Controller
         );
     }
 
+    #[OA\Get(
+        path: '/admin/sessions/{session}',
+        summary: 'Détail d\'une session',
+        description: 'Retourne le détail complet d\'une session avec ses manches.',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Détail session'),
+            new OA\Response(response: 404, description: 'Session introuvable'),
+        ],
+    )]
     public function show(Session $session): SessionResource
     {
         $session->load([
@@ -55,6 +105,30 @@ class SessionController extends Controller
         return new SessionResource($session);
     }
 
+    #[OA\Put(
+        path: '/admin/sessions/{session}',
+        summary: 'Modifier une session',
+        description: 'Met à jour une session (statut Draft ou RegistrationOpen uniquement).',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        requestBody: new OA\RequestBody(
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'name', type: 'string'),
+                    new OA\Property(property: 'description', type: 'string'),
+                    new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
+                    new OA\Property(property: 'max_players', type: 'integer'),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Session modifiée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function update(UpdateSessionRequest $request, Session $session): JsonResponse
     {
         if (! in_array($session->status, [SessionStatus::Draft, SessionStatus::RegistrationOpen])) {
@@ -68,6 +142,20 @@ class SessionController extends Controller
         return response()->json(new SessionResource($session));
     }
 
+    #[OA\Delete(
+        path: '/admin/sessions/{session}',
+        summary: 'Supprimer une session',
+        description: 'Supprime une session (statut Draft uniquement).',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 204, description: 'Session supprimée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function destroy(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::Draft) {

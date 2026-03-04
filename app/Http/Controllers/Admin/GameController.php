@@ -42,6 +42,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use OpenApi\Attributes as OA;
 
 class GameController extends Controller
 {
@@ -52,6 +53,17 @@ class GameController extends Controller
     /**
      * Ouvre les inscriptions pour une session.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/open-registration',
+        summary: 'Ouvrir les inscriptions',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Inscriptions ouvertes'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function openRegistration(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::Draft) {
@@ -66,6 +78,17 @@ class GameController extends Controller
     /**
      * Clôture les inscriptions.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/close-registration',
+        summary: 'Clôturer les inscriptions',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Inscriptions clôturées'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function closeRegistration(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::RegistrationOpen) {
@@ -80,6 +103,17 @@ class GameController extends Controller
     /**
      * Lance la phase de pré-sélection.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/open-preselection',
+        summary: 'Ouvrir la phase de pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Pré-sélection ouverte'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function openPreselection(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::RegistrationClosed) {
@@ -99,6 +133,26 @@ class GameController extends Controller
     /**
      * Sélectionne les joueurs et crée les SessionPlayers.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/select-players',
+        summary: 'Sélectionner les joueurs pour la session',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['registration_ids'],
+                properties: [
+                    new OA\Property(property: 'registration_ids', type: 'array', items: new OA\Items(type: 'integer')),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Joueurs sélectionnés'),
+            new OA\Response(response: 422, description: 'Statut invalide ou validation échouée'),
+        ],
+    )]
     public function selectPlayers(Request $request, Session $session): JsonResponse
     {
         if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed])) {
@@ -175,6 +229,17 @@ class GameController extends Controller
     /**
      * Lance la session (démarre la première manche active).
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/start',
+        summary: 'Démarrer la session de jeu',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Session démarrée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function startSession(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::Ready) {
@@ -233,6 +298,26 @@ class GameController extends Controller
     /**
      * Lance une question (l'admin décide quand la question est visible).
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/launch-question',
+        summary: 'Lancer une question',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['question_id'],
+                properties: [
+                    new OA\Property(property: 'question_id', type: 'integer'),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Question lancée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function launchQuestion(Request $request, Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::InProgress) {
@@ -276,6 +361,17 @@ class GameController extends Controller
      * Clôture la question courante et évalue les réponses.
      * Pour SecondChance (manche 3), les joueurs en échec ne sont PAS éliminés ici.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/close-question',
+        summary: 'Clôturer la question courante et évaluer les réponses',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Question clôturée avec résultats'),
+            new OA\Response(response: 422, description: 'Statut invalide ou aucune question en cours'),
+        ],
+    )]
     public function closeQuestion(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::InProgress) {
@@ -377,6 +473,17 @@ class GameController extends Controller
     /**
      * Lance la question de seconde chance associée à la question principale courante.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/launch-second-chance',
+        summary: 'Lancer la question de seconde chance',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Seconde chance lancée'),
+            new OA\Response(response: 422, description: 'Manche non compatible ou pas de question'),
+        ],
+    )]
     public function launchSecondChance(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::InProgress) {
@@ -420,6 +527,17 @@ class GameController extends Controller
     /**
      * Clôture la question de seconde chance et élimine ceux qui échouent.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/close-second-chance',
+        summary: 'Clôturer la seconde chance et éliminer les perdants',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Seconde chance clôturée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function closeSecondChance(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::InProgress) {
@@ -516,6 +634,17 @@ class GameController extends Controller
     /**
      * Finalise la manche 5 : classe les joueurs et ne garde que le top 4.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/finalize-top4',
+        summary: 'Finaliser le top 4 (manche 5)',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Top 4 finalisé avec classements'),
+            new OA\Response(response: 422, description: 'Manche non compatible'),
+        ],
+    )]
     public function finalizeTop4(Session $session): JsonResponse
     {
         $round = $session->currentRound;
@@ -614,6 +743,26 @@ class GameController extends Controller
     /**
      * Configure l'ordre de passage pour une manche duel (manches 6 ou 7).
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/setup-turn-order',
+        summary: 'Configurer l\'ordre de passage pour les duels',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['player_order'],
+                properties: [
+                    new OA\Property(property: 'player_order', type: 'array', items: new OA\Items(type: 'integer'), description: 'IDs des session_players dans l\'ordre'),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Ordre configuré'),
+            new OA\Response(response: 422, description: 'Manche non compatible'),
+        ],
+    )]
     public function setupTurnOrder(Request $request, Session $session): JsonResponse
     {
         $round = $session->currentRound;
@@ -671,6 +820,17 @@ class GameController extends Controller
     /**
      * Récupère le prochain joueur dont c'est le tour dans la rotation.
      */
+    #[OA\Get(
+        path: '/admin/sessions/{session}/game/next-turn',
+        summary: 'Récupérer le prochain joueur dans la rotation',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Prochain joueur'),
+            new OA\Response(response: 422, description: 'Manche non compatible'),
+        ],
+    )]
     public function getNextTurn(Session $session): JsonResponse
     {
         $round = $session->currentRound;
@@ -726,6 +886,17 @@ class GameController extends Controller
     /**
      * Révèle les choix des finalistes (continuer / abandonner).
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/reveal-finale-choices',
+        summary: 'Révéler les choix des finalistes',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Choix révélés avec scénario'),
+            new OA\Response(response: 422, description: 'Pas en finale ou choix manquants'),
+        ],
+    )]
     public function revealFinaleChoices(Session $session): JsonResponse
     {
         $round = $session->currentRound;
@@ -766,6 +937,17 @@ class GameController extends Controller
     /**
      * Résout la finale et calcule les gains.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/resolve-finale',
+        summary: 'Résoudre la finale et calculer les gains',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Finale résolue avec résultats'),
+            new OA\Response(response: 422, description: 'Pas en finale ou choix manquants'),
+        ],
+    )]
     public function resolveFinale(Session $session): JsonResponse
     {
         $round = $session->currentRound;
@@ -823,6 +1005,17 @@ class GameController extends Controller
     /**
      * Révèle la bonne réponse.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/reveal-answer',
+        summary: 'Révéler la bonne réponse de la question courante',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Réponse révélée'),
+            new OA\Response(response: 422, description: 'Aucune question clôturée'),
+        ],
+    )]
     public function revealAnswer(Session $session): JsonResponse
     {
         $question = $session->currentQuestion;
@@ -853,6 +1046,17 @@ class GameController extends Controller
     /**
      * Passe à la manche suivante active.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/next-round',
+        summary: 'Passer à la manche suivante',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Manche suivante démarrée ou session terminée'),
+            new OA\Response(response: 422, description: 'Session pas en cours'),
+        ],
+    )]
     public function nextRound(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::InProgress) {
@@ -925,6 +1129,17 @@ class GameController extends Controller
     /**
      * Termine la session manuellement.
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/end',
+        summary: 'Terminer la session manuellement',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Session terminée'),
+            new OA\Response(response: 422, description: 'Session pas en cours'),
+        ],
+    )]
     public function endSession(Session $session): JsonResponse
     {
         if (! in_array($session->status, [SessionStatus::InProgress, SessionStatus::Paused])) {

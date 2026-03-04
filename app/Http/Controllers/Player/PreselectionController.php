@@ -14,12 +14,22 @@ use App\Models\Session;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class PreselectionController extends Controller
 {
     /**
      * Récupère les questions de pré-sélection pour une session.
      */
+    #[OA\Get(
+        path: '/player/sessions/{session}/preselection/questions',
+        summary: 'Récupérer les questions de pré-sélection',
+        tags: ['Player Preselection'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Liste des questions de pré-sélection'),
+        ],
+    )]
     public function questions(Session $session): AnonymousResourceCollection
     {
         $questions = $session->preselectionQuestions()
@@ -32,6 +42,38 @@ class PreselectionController extends Controller
     /**
      * Soumet les réponses de pré-sélection et calcule le score.
      */
+    #[OA\Post(
+        path: '/player/preselection/submit',
+        summary: 'Soumettre les réponses de pré-sélection',
+        tags: ['Player Preselection'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['registration_id', 'answers'],
+                properties: [
+                    new OA\Property(property: 'registration_id', type: 'integer'),
+                    new OA\Property(property: 'registration_token', type: 'string', nullable: true),
+                    new OA\Property(
+                        property: 'answers',
+                        type: 'array',
+                        items: new OA\Items(
+                            properties: [
+                                new OA\Property(property: 'preselection_question_id', type: 'integer'),
+                                new OA\Property(property: 'answer_value', type: 'string', nullable: true),
+                                new OA\Property(property: 'selected_choice_id', type: 'integer', nullable: true),
+                                new OA\Property(property: 'response_time_ms', type: 'integer', nullable: true),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Réponses soumises avec score'),
+            new OA\Response(response: 404, description: 'Inscription non trouvée'),
+            new OA\Response(response: 422, description: 'Déjà soumis'),
+        ],
+    )]
     public function submit(SubmitPreselectionAnswerRequest $request): JsonResponse
     {
         $registration = Registration::query()

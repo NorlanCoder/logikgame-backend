@@ -11,12 +11,23 @@ use App\Models\SessionPlayer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use OpenApi\Attributes as OA;
 
 class ProjectionController extends Controller
 {
     /**
      * Génère un code d'accès projection pour une session (admin).
      */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/projection/generate',
+        summary: 'Générer un code d\'accès projection',
+        security: [['sanctum' => []]],
+        tags: ['Projection'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 201, description: 'Code de projection généré'),
+        ],
+    )]
     public function generateCode(Session $session): JsonResponse
     {
         $projection = ProjectionAccess::create([
@@ -34,6 +45,24 @@ class ProjectionController extends Controller
     /**
      * Authentifie l'écran de projection via code d'accès.
      */
+    #[OA\Post(
+        path: '/projection/authenticate',
+        summary: 'Authentifier l\'écran de projection',
+        tags: ['Projection'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['access_code'],
+                properties: [
+                    new OA\Property(property: 'access_code', type: 'string', maxLength: 6, minLength: 6),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Authentification réussie'),
+            new OA\Response(response: 401, description: 'Code invalide'),
+        ],
+    )]
     public function authenticate(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -66,6 +95,16 @@ class ProjectionController extends Controller
      * Synchronise l'état complet de la session pour la projection.
      * Endpoint principal appelé régulièrement ou après reconnexion.
      */
+    #[OA\Get(
+        path: '/projection/{accessCode}/sync',
+        summary: 'Synchroniser l\'état de la session pour la projection',
+        tags: ['Projection'],
+        parameters: [new OA\Parameter(name: 'accessCode', in: 'path', required: true, schema: new OA\Schema(type: 'string'))],
+        responses: [
+            new OA\Response(response: 200, description: 'État complet de la session'),
+            new OA\Response(response: 401, description: 'Code invalide'),
+        ],
+    )]
     public function sync(Request $request, string $accessCode): JsonResponse
     {
         $projection = $this->resolveProjection($accessCode);

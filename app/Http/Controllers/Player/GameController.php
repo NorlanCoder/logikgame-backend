@@ -20,12 +20,23 @@ use App\Models\SessionPlayer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class GameController extends Controller
 {
     /**
      * Rejoindre la salle de jeu avec un access_token.
      */
+    #[OA\Post(
+        path: '/player/join',
+        summary: 'Rejoindre la salle de jeu',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        responses: [
+            new OA\Response(response: 200, description: 'Joueur connecté'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+        ],
+    )]
     public function join(Request $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);
@@ -56,6 +67,16 @@ class GameController extends Controller
     /**
      * Récupère l'état actuel de la session pour le joueur.
      */
+    #[OA\Get(
+        path: '/player/status',
+        summary: 'Récupérer l\'état actuel de la session',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        responses: [
+            new OA\Response(response: 200, description: 'État de la session pour le joueur'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+        ],
+    )]
     public function status(Request $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);
@@ -111,6 +132,32 @@ class GameController extends Controller
     /**
      * Soumet la réponse du joueur pour la question courante.
      */
+    #[OA\Post(
+        path: '/player/answer',
+        summary: 'Soumettre une réponse à la question courante',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['question_id'],
+                properties: [
+                    new OA\Property(property: 'question_id', type: 'integer'),
+                    new OA\Property(property: 'answer_value', type: 'string', nullable: true),
+                    new OA\Property(property: 'selected_choice_id', type: 'integer', nullable: true),
+                    new OA\Property(property: 'selected_sc_choice_id', type: 'integer', nullable: true),
+                    new OA\Property(property: 'is_second_chance', type: 'boolean'),
+                    new OA\Property(property: 'second_chance_question_id', type: 'integer', nullable: true),
+                    new OA\Property(property: 'response_time_ms', type: 'integer', nullable: true),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Réponse soumise'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+            new OA\Response(response: 422, description: 'Erreur de validation'),
+        ],
+    )]
     public function submitAnswer(SubmitAnswerRequest $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);
@@ -170,6 +217,17 @@ class GameController extends Controller
     /**
      * Utilise l'indice pour la question courante (manche 2 uniquement).
      */
+    #[OA\Post(
+        path: '/player/hint',
+        summary: 'Utiliser l\'indice (manche 2)',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        responses: [
+            new OA\Response(response: 200, description: 'Indice activé'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+            new OA\Response(response: 422, description: 'Indice non disponible'),
+        ],
+    )]
     public function useHint(Request $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);
@@ -235,6 +293,17 @@ class GameController extends Controller
     /**
      * Passe la manche (manche 4 uniquement, coûte 1 000 de capital).
      */
+    #[OA\Post(
+        path: '/player/pass-manche',
+        summary: 'Passer la manche (coûte 1 000 de capital)',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        responses: [
+            new OA\Response(response: 200, description: 'Manche passée'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+            new OA\Response(response: 422, description: 'Pas en manche 4 ou capital insuffisant'),
+        ],
+    )]
     public function passManche(Request $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);
@@ -280,6 +349,26 @@ class GameController extends Controller
 
     /**     * Soumet le choix de finale du joueur (Continuer ou Abandonner).
      */
+    #[OA\Post(
+        path: '/player/finale-choice',
+        summary: 'Soumettre le choix de finale (continuer/abandonner)',
+        security: [['playerToken' => []]],
+        tags: ['Player Game'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['choice'],
+                properties: [
+                    new OA\Property(property: 'choice', type: 'string', enum: ['continue', 'abandon']),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Choix enregistré'),
+            new OA\Response(response: 401, description: 'Token invalide'),
+            new OA\Response(response: 422, description: 'Pas finaliste ou finale non en cours'),
+        ],
+    )]
     public function submitFinaleChoice(Request $request): JsonResponse
     {
         $sessionPlayer = $this->resolveSessionPlayer($request);

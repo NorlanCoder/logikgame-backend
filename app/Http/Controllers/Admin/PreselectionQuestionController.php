@@ -10,9 +10,20 @@ use App\Models\Session;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use OpenApi\Attributes as OA;
 
 class PreselectionQuestionController extends Controller
 {
+    #[OA\Get(
+        path: '/admin/sessions/{session}/preselection-questions',
+        summary: 'Lister les questions de pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Preselection Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [new OA\Response(response: 200, description: 'Liste des questions')],
+    )]
     public function index(Session $session): AnonymousResourceCollection
     {
         $questions = $session->preselectionQuestions()
@@ -23,6 +34,36 @@ class PreselectionQuestionController extends Controller
         return PreselectionQuestionResource::collection($questions);
     }
 
+    #[OA\Post(
+        path: '/admin/sessions/{session}/preselection-questions',
+        summary: 'Créer une question de pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Preselection Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['text', 'answer_type', 'correct_answer'],
+                properties: [
+                    new OA\Property(property: 'text', type: 'string'),
+                    new OA\Property(property: 'answer_type', type: 'string', enum: ['qcm', 'text', 'number']),
+                    new OA\Property(property: 'correct_answer', type: 'string'),
+                    new OA\Property(property: 'choices', type: 'array', items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: 'label', type: 'string'),
+                            new OA\Property(property: 'is_correct', type: 'boolean'),
+                        ],
+                    )),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Question créée'),
+            new OA\Response(response: 422, description: 'Validation échouée'),
+        ],
+    )]
     public function store(Request $request, Session $session): JsonResponse
     {
         $validated = $request->validate([
@@ -71,6 +112,17 @@ class PreselectionQuestionController extends Controller
         );
     }
 
+    #[OA\Get(
+        path: '/admin/sessions/{session}/preselection-questions/{preselectionQuestion}',
+        summary: 'Détail question pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Preselection Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'preselectionQuestion', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [new OA\Response(response: 200, description: 'Détail question')],
+    )]
     public function show(Session $session, PreselectionQuestion $preselectionQuestion): PreselectionQuestionResource
     {
         $preselectionQuestion->load('choices');
@@ -78,6 +130,20 @@ class PreselectionQuestionController extends Controller
         return new PreselectionQuestionResource($preselectionQuestion);
     }
 
+    #[OA\Put(
+        path: '/admin/sessions/{session}/preselection-questions/{preselectionQuestion}',
+        summary: 'Modifier question pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Preselection Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'preselectionQuestion', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Question modifiée'),
+            new OA\Response(response: 422, description: 'Validation échouée'),
+        ],
+    )]
     public function update(Request $request, Session $session, PreselectionQuestion $preselectionQuestion): JsonResponse
     {
         $validated = $request->validate([
@@ -115,6 +181,19 @@ class PreselectionQuestionController extends Controller
         );
     }
 
+    #[OA\Delete(
+        path: '/admin/sessions/{session}/preselection-questions/{preselectionQuestion}',
+        summary: 'Supprimer question pré-sélection',
+        security: [['sanctum' => []]],
+        tags: ['Preselection Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'preselectionQuestion', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 204, description: 'Question supprimée'),
+        ],
+    )]
     public function destroy(Session $session, PreselectionQuestion $preselectionQuestion): JsonResponse
     {
         $preselectionQuestion->delete();

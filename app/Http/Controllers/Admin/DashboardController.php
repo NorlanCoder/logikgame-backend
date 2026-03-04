@@ -10,12 +10,36 @@ use App\Models\PlayerAnswer;
 use App\Models\Session;
 use App\Models\SessionPlayer;
 use Illuminate\Http\JsonResponse;
+use OpenApi\Attributes as OA;
 
 class DashboardController extends Controller
 {
     /**
      * Tableau de bord en direct pour l'administrateur.
      */
+    #[OA\Get(
+        path: '/admin/sessions/{session}/dashboard',
+        summary: 'Dashboard temps réel',
+        description: 'Retourne les statistiques en direct : joueurs actifs/éliminés, stats question courante, cagnotte.',
+        security: [['sanctum' => []]],
+        tags: ['Dashboard'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Données du dashboard', content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'session_status', type: 'string'),
+                    new OA\Property(property: 'jackpot', type: 'integer'),
+                    new OA\Property(property: 'players_remaining', type: 'integer'),
+                    new OA\Property(property: 'players_active', type: 'integer'),
+                    new OA\Property(property: 'players_eliminated', type: 'integer'),
+                    new OA\Property(property: 'current_round', type: 'object', nullable: true),
+                    new OA\Property(property: 'current_question', type: 'object', nullable: true),
+                ],
+            )),
+        ],
+    )]
     public function show(Session $session): JsonResponse
     {
         $session->load(['currentRound', 'currentQuestion.choices', 'currentQuestion.hint']);

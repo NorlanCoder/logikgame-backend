@@ -1,0 +1,2211 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "LOGIK GAME API",
+        "description": "API backend du jeu télévisé LOGIK GAME — gestion des sessions, manches, questions, joueurs, temps réel et projection.",
+        "contact": {
+            "name": "NerdX",
+            "email": "contact@nerdx.com"
+        },
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/api",
+            "description": "API Server"
+        }
+    ],
+    "paths": {
+        "/admin/login": {
+            "post": {
+                "tags": [
+                    "Admin Auth"
+                ],
+                "summary": "Connexion admin",
+                "description": "Authentifie un administrateur et retourne un token Sanctum.",
+                "operationId": "a12ac8ee08bb04e985032e5364fb4667",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "admin@logikgame.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "password"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "token": {
+                                            "type": "string"
+                                        },
+                                        "admin": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "integer"
+                                                },
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "email": {
+                                                    "type": "string"
+                                                },
+                                                "avatar": {
+                                                    "type": "string",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Identifiants invalides"
+                    },
+                    "422": {
+                        "description": "Validation échouée"
+                    }
+                }
+            }
+        },
+        "/admin/logout": {
+            "post": {
+                "tags": [
+                    "Admin Auth"
+                ],
+                "summary": "Déconnexion admin",
+                "description": "Révoque le token Sanctum courant.",
+                "operationId": "5e0dba22435f6c0433fe6c0b32c84df1",
+                "responses": {
+                    "200": {
+                        "description": "Déconnecté",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/me": {
+            "get": {
+                "tags": [
+                    "Admin Auth"
+                ],
+                "summary": "Profil admin",
+                "description": "Retourne les informations de l'administrateur connecté.",
+                "operationId": "d690ec72c909d88e0a37f2109ebba7c1",
+                "responses": {
+                    "200": {
+                        "description": "Profil admin",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "avatar": {
+                                            "type": "string",
+                                            "nullable": true
+                                        },
+                                        "last_login_at": {
+                                            "type": "string",
+                                            "format": "date-time",
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/dashboard": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Dashboard temps réel",
+                "description": "Retourne les statistiques en direct : joueurs actifs/éliminés, stats question courante, cagnotte.",
+                "operationId": "bca3ab2e8f21084f2357ba42b78b86bb",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Données du dashboard",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "session_status": {
+                                            "type": "string"
+                                        },
+                                        "jackpot": {
+                                            "type": "integer"
+                                        },
+                                        "players_remaining": {
+                                            "type": "integer"
+                                        },
+                                        "players_active": {
+                                            "type": "integer"
+                                        },
+                                        "players_eliminated": {
+                                            "type": "integer"
+                                        },
+                                        "current_round": {
+                                            "type": "object",
+                                            "nullable": true
+                                        },
+                                        "current_question": {
+                                            "type": "object",
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/open-registration": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Ouvrir les inscriptions",
+                "description": "Ouvre les inscriptions pour une session.",
+                "operationId": "d2fe0b2e763db6c9ad9dcfb2e6d54bbd",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Inscriptions ouvertes"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/close-registration": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Clôturer les inscriptions",
+                "description": "Clôture les inscriptions.",
+                "operationId": "5c1bf9f9e1e5e3ae44e958a5cff51a6b",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Inscriptions clôturées"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/open-preselection": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Ouvrir la phase de pré-sélection",
+                "description": "Lance la phase de pré-sélection.",
+                "operationId": "5ebe159621d8a4eb7d5f49223f425b89",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Pré-sélection ouverte"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/select-players": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Sélectionner les joueurs pour la session",
+                "description": "Sélectionne les joueurs et crée les SessionPlayers.",
+                "operationId": "2e01a08dc392a2283cdbc0bb12c57891",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "registration_ids"
+                                ],
+                                "properties": {
+                                    "registration_ids": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Joueurs sélectionnés"
+                    },
+                    "422": {
+                        "description": "Statut invalide ou validation échouée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/start": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Démarrer la session de jeu",
+                "description": "Lance la session (démarre la première manche active).",
+                "operationId": "1920fceb46103fe2092b644b3f6b406f",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Session démarrée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/launch-question": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Lancer une question",
+                "description": "Lance une question (l'admin décide quand la question est visible).",
+                "operationId": "9f9a3b11e7631538a839198568d91a95",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "question_id"
+                                ],
+                                "properties": {
+                                    "question_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Question lancée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/close-question": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Clôturer la question courante et évaluer les réponses",
+                "description": "Clôture la question courante et évalue les réponses.\nPour SecondChance (manche 3), les joueurs en échec ne sont PAS éliminés ici.",
+                "operationId": "91b4312ad39c44e8fe0c4d6b76dafbde",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Question clôturée avec résultats"
+                    },
+                    "422": {
+                        "description": "Statut invalide ou aucune question en cours"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/launch-second-chance": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Lancer la question de seconde chance",
+                "description": "Lance la question de seconde chance associée à la question principale courante.",
+                "operationId": "e626fd5c8ee12c2b1ccf56c40a8d3912",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Seconde chance lancée"
+                    },
+                    "422": {
+                        "description": "Manche non compatible ou pas de question"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/close-second-chance": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Clôturer la seconde chance et éliminer les perdants",
+                "description": "Clôture la question de seconde chance et élimine ceux qui échouent.",
+                "operationId": "f1b886657233325694347193b5537690",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Seconde chance clôturée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/finalize-top4": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Finaliser le top 4 (manche 5)",
+                "description": "Finalise la manche 5 : classe les joueurs et ne garde que le top 4.",
+                "operationId": "6a056df1e0d5f3fec1cbaa3d14e88686",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Top 4 finalisé avec classements"
+                    },
+                    "422": {
+                        "description": "Manche non compatible"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/setup-turn-order": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Configurer l'ordre de passage pour les duels",
+                "description": "Configure l'ordre de passage pour une manche duel (manches 6 ou 7).",
+                "operationId": "cf650848c194c34b494b4fd0ea8d82cc",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "player_order"
+                                ],
+                                "properties": {
+                                    "player_order": {
+                                        "description": "IDs des session_players dans l'ordre",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Ordre configuré"
+                    },
+                    "422": {
+                        "description": "Manche non compatible"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/next-turn": {
+            "get": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Récupérer le prochain joueur dans la rotation",
+                "description": "Récupère le prochain joueur dont c'est le tour dans la rotation.",
+                "operationId": "b7ac1bf5a3b00ccbe56686bdc1eebc9c",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Prochain joueur"
+                    },
+                    "422": {
+                        "description": "Manche non compatible"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/reveal-finale-choices": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Révéler les choix des finalistes",
+                "description": "Révèle les choix des finalistes (continuer / abandonner).",
+                "operationId": "84674ae40dacd00c0de322b1dedf67db",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Choix révélés avec scénario"
+                    },
+                    "422": {
+                        "description": "Pas en finale ou choix manquants"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/resolve-finale": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Résoudre la finale et calculer les gains",
+                "description": "Résout la finale et calcule les gains.",
+                "operationId": "17ac9a202c9c510e5cad072805af0e8b",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Finale résolue avec résultats"
+                    },
+                    "422": {
+                        "description": "Pas en finale ou choix manquants"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/reveal-answer": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Révéler la bonne réponse de la question courante",
+                "description": "Révèle la bonne réponse.",
+                "operationId": "e1204919f904e423d80d9a2f0e85313f",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Réponse révélée"
+                    },
+                    "422": {
+                        "description": "Aucune question clôturée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/next-round": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Passer à la manche suivante",
+                "description": "Passe à la manche suivante active.",
+                "operationId": "408abc747f285b3a9484c81d5a69beeb",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Manche suivante démarrée ou session terminée"
+                    },
+                    "422": {
+                        "description": "Session pas en cours"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/end": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Terminer la session manuellement",
+                "description": "Termine la session manuellement.",
+                "operationId": "1985d362e7d2a13ec4adccc6059a11e9",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Session terminée"
+                    },
+                    "422": {
+                        "description": "Session pas en cours"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/preselection-questions": {
+            "get": {
+                "tags": [
+                    "Preselection Questions"
+                ],
+                "summary": "Lister les questions de pré-sélection",
+                "operationId": "c63fa8a9bed0bf604e7c49d51bc9b1f2",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des questions"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Preselection Questions"
+                ],
+                "summary": "Créer une question de pré-sélection",
+                "operationId": "920c5dba9017dc257c34bebb27c45935",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "text",
+                                    "answer_type",
+                                    "correct_answer"
+                                ],
+                                "properties": {
+                                    "text": {
+                                        "type": "string"
+                                    },
+                                    "answer_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "qcm",
+                                            "text",
+                                            "number"
+                                        ]
+                                    },
+                                    "correct_answer": {
+                                        "type": "string"
+                                    },
+                                    "choices": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "is_correct": {
+                                                    "type": "boolean"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Question créée"
+                    },
+                    "422": {
+                        "description": "Validation échouée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/preselection-questions/{preselectionQuestion}": {
+            "get": {
+                "tags": [
+                    "Preselection Questions"
+                ],
+                "summary": "Détail question pré-sélection",
+                "operationId": "c5016ce1a5afec2a3742ce0ae762048c",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "preselectionQuestion",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail question"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Preselection Questions"
+                ],
+                "summary": "Modifier question pré-sélection",
+                "operationId": "c264fce4ded3240a8aabcfa2a3e33158",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "preselectionQuestion",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Question modifiée"
+                    },
+                    "422": {
+                        "description": "Validation échouée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Preselection Questions"
+                ],
+                "summary": "Supprimer question pré-sélection",
+                "operationId": "547ef0b94eb76454a3689897fa0932f7",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "preselectionQuestion",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Question supprimée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/rounds/{round}/questions": {
+            "get": {
+                "tags": [
+                    "Questions"
+                ],
+                "summary": "Lister les questions",
+                "description": "Retourne les questions d'une manche.",
+                "operationId": "dd53142ed1c099d961daea7cbb205c7f",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des questions"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Questions"
+                ],
+                "summary": "Créer une question",
+                "description": "Crée une question avec choix QCM et indice optionnel.",
+                "operationId": "87aeaab6c2794b14838374c6e4af2a29",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "text",
+                                    "answer_type",
+                                    "correct_answer",
+                                    "duration"
+                                ],
+                                "properties": {
+                                    "text": {
+                                        "type": "string"
+                                    },
+                                    "answer_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "qcm",
+                                            "text",
+                                            "number"
+                                        ]
+                                    },
+                                    "correct_answer": {
+                                        "type": "string"
+                                    },
+                                    "duration": {
+                                        "type": "integer",
+                                        "example": 30
+                                    },
+                                    "media_url": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "media_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "none",
+                                            "image",
+                                            "video",
+                                            "audio"
+                                        ]
+                                    },
+                                    "choices": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "is_correct": {
+                                                    "type": "boolean"
+                                                },
+                                                "display_order": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "hint": {
+                                        "properties": {
+                                            "hint_type": {
+                                                "type": "string"
+                                            },
+                                            "hint_data": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Question créée"
+                    },
+                    "422": {
+                        "description": "Validation échouée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/rounds/{round}/questions/{question}": {
+            "get": {
+                "tags": [
+                    "Questions"
+                ],
+                "summary": "Détail d'une question",
+                "description": "Retourne le détail complet d'une question avec choix et indice.",
+                "operationId": "230a06b701cb40e7a79725bc3856edd9",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail question"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Questions"
+                ],
+                "summary": "Modifier une question",
+                "description": "Met à jour une question (statut Pending uniquement).",
+                "operationId": "34d6753fce3dd3b2b2aae6c0d400e0e6",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Question modifiée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Questions"
+                ],
+                "summary": "Supprimer une question",
+                "description": "Supprime une question (statut Pending uniquement).",
+                "operationId": "ab6dd0c1938961788cf68a28a3f2994f",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Question supprimée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions": {
+            "get": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Lister les sessions",
+                "description": "Retourne toutes les sessions de l'admin connecté.",
+                "operationId": "38b840f71f700e9159c5ebb3c89829a0",
+                "responses": {
+                    "200": {
+                        "description": "Liste des sessions"
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Créer une session",
+                "description": "Crée une nouvelle session de jeu avec 8 manches par défaut.",
+                "operationId": "8581b931c53e63a0ce83254db952b9c7",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "name",
+                                    "scheduled_at",
+                                    "max_players"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "LOGIK S1E01"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "scheduled_at": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "max_players": {
+                                        "type": "integer",
+                                        "example": 100
+                                    },
+                                    "cover_image_url": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Session créée"
+                    },
+                    "422": {
+                        "description": "Validation échouée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}": {
+            "get": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Détail d'une session",
+                "description": "Retourne le détail complet d'une session avec ses manches.",
+                "operationId": "5c0159bac2ca6d55b2edd435bc5bf01c",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail session"
+                    },
+                    "404": {
+                        "description": "Session introuvable"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Modifier une session",
+                "description": "Met à jour une session (statut Draft ou RegistrationOpen uniquement).",
+                "operationId": "5e677d0895bd5bd432b8ccf6174955d0",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "scheduled_at": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "max_players": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Session modifiée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Supprimer une session",
+                "description": "Supprime une session (statut Draft uniquement).",
+                "operationId": "aec3530c8485962386d6be00bbe6fd74",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Session supprimée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/rounds": {
+            "get": {
+                "tags": [
+                    "Rounds"
+                ],
+                "summary": "Lister les manches",
+                "description": "Retourne les 8 manches d'une session avec le nombre de questions.",
+                "operationId": "bccd8b16e26f034f0e0e158c40384de0",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des manches"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/rounds/{round}": {
+            "patch": {
+                "tags": [
+                    "Rounds"
+                ],
+                "summary": "Modifier une manche",
+                "description": "Met à jour le nom, l'activation ou la description d'une manche. Les manches 5-8 ne peuvent pas être désactivées.",
+                "operationId": "01da26155afd7087eeedd8c6698e147a",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "is_active": {
+                                        "type": "boolean"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "rules_description": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Manche modifiée"
+                    },
+                    "422": {
+                        "description": "Contrainte métier violée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/player/join": {
+            "post": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Rejoindre la salle de jeu",
+                "description": "Rejoindre la salle de jeu avec un access_token.",
+                "operationId": "434949a0f559e146745b5fc6fc6e134b",
+                "responses": {
+                    "200": {
+                        "description": "Joueur connecté"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/status": {
+            "get": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Récupérer l'état actuel de la session",
+                "description": "Récupère l'état actuel de la session pour le joueur.",
+                "operationId": "510bb7976ac61a26993afb21d470cf43",
+                "responses": {
+                    "200": {
+                        "description": "État de la session pour le joueur"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/answer": {
+            "post": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Soumettre une réponse à la question courante",
+                "description": "Soumet la réponse du joueur pour la question courante.",
+                "operationId": "d9e325109ca60cd8bfed2ab42183d4b7",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "question_id"
+                                ],
+                                "properties": {
+                                    "question_id": {
+                                        "type": "integer"
+                                    },
+                                    "answer_value": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "selected_choice_id": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "selected_sc_choice_id": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "is_second_chance": {
+                                        "type": "boolean"
+                                    },
+                                    "second_chance_question_id": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "response_time_ms": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Réponse soumise"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    },
+                    "422": {
+                        "description": "Erreur de validation"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/hint": {
+            "post": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Utiliser l'indice (manche 2)",
+                "description": "Utilise l'indice pour la question courante (manche 2 uniquement).",
+                "operationId": "f2ef975f9615410f8a88f4714594f05a",
+                "responses": {
+                    "200": {
+                        "description": "Indice activé"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    },
+                    "422": {
+                        "description": "Indice non disponible"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/pass-manche": {
+            "post": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Passer la manche (coûte 1 000 de capital)",
+                "description": "Passe la manche (manche 4 uniquement, coûte 1 000 de capital).",
+                "operationId": "13ec6d0526ce39ec60e74fea5d67ccc7",
+                "responses": {
+                    "200": {
+                        "description": "Manche passée"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    },
+                    "422": {
+                        "description": "Pas en manche 4 ou capital insuffisant"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/finale-choice": {
+            "post": {
+                "tags": [
+                    "Player Game"
+                ],
+                "summary": "Soumettre le choix de finale (continuer/abandonner)",
+                "description": "Soumet le choix de finale du joueur (Continuer ou Abandonner).",
+                "operationId": "576177c0c934925a318f1413a31458ad",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "choice"
+                                ],
+                                "properties": {
+                                    "choice": {
+                                        "type": "string",
+                                        "enum": [
+                                            "continue",
+                                            "abandon"
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Choix enregistré"
+                    },
+                    "401": {
+                        "description": "Token invalide"
+                    },
+                    "422": {
+                        "description": "Pas finaliste ou finale non en cours"
+                    }
+                },
+                "security": [
+                    {
+                        "playerToken": []
+                    }
+                ]
+            }
+        },
+        "/player/sessions/{session}/preselection/questions": {
+            "get": {
+                "tags": [
+                    "Player Preselection"
+                ],
+                "summary": "Récupérer les questions de pré-sélection",
+                "description": "Récupère les questions de pré-sélection pour une session.",
+                "operationId": "98337f2fcf07b243606aa4f23e38252a",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des questions de pré-sélection"
+                    }
+                }
+            }
+        },
+        "/player/preselection/submit": {
+            "post": {
+                "tags": [
+                    "Player Preselection"
+                ],
+                "summary": "Soumettre les réponses de pré-sélection",
+                "description": "Soumet les réponses de pré-sélection et calcule le score.",
+                "operationId": "c5676bd0fa1fb87000c615d216db1fa3",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "registration_id",
+                                    "answers"
+                                ],
+                                "properties": {
+                                    "registration_id": {
+                                        "type": "integer"
+                                    },
+                                    "registration_token": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "answers": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "preselection_question_id": {
+                                                    "type": "integer"
+                                                },
+                                                "answer_value": {
+                                                    "type": "string",
+                                                    "nullable": true
+                                                },
+                                                "selected_choice_id": {
+                                                    "type": "integer",
+                                                    "nullable": true
+                                                },
+                                                "response_time_ms": {
+                                                    "type": "integer",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Réponses soumises avec score"
+                    },
+                    "404": {
+                        "description": "Inscription non trouvée"
+                    },
+                    "422": {
+                        "description": "Déjà soumis"
+                    }
+                }
+            }
+        },
+        "/player/register": {
+            "post": {
+                "tags": [
+                    "Player Registration"
+                ],
+                "summary": "Inscrire un joueur à une session",
+                "description": "Inscrit un joueur à une session.\nCrée le joueur si inconnu, ou réutilise le profil existant.",
+                "operationId": "9a38275fe38fc57a23f6f718d3ea98fe",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "session_id",
+                                    "full_name",
+                                    "email",
+                                    "phone",
+                                    "pseudo"
+                                ],
+                                "properties": {
+                                    "session_id": {
+                                        "type": "integer"
+                                    },
+                                    "full_name": {
+                                        "type": "string"
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "phone": {
+                                        "type": "string"
+                                    },
+                                    "pseudo": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Inscription créée"
+                    },
+                    "200": {
+                        "description": "Déjà inscrit"
+                    },
+                    "422": {
+                        "description": "Inscriptions fermées ou validation échouée"
+                    }
+                }
+            }
+        },
+        "/player/registrations/{registration}": {
+            "get": {
+                "tags": [
+                    "Player Registration"
+                ],
+                "summary": "Voir le statut d'une inscription",
+                "description": "Récupère le statut d'une inscription par son ID.",
+                "operationId": "1137314087a9279baff9c86062a72b94",
+                "parameters": [
+                    {
+                        "name": "registration",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détails de l'inscription"
+                    }
+                }
+            }
+        },
+        "/admin/sessions/{session}/projection/generate": {
+            "post": {
+                "tags": [
+                    "Projection"
+                ],
+                "summary": "Générer un code d'accès projection",
+                "description": "Génère un code d'accès projection pour une session (admin).",
+                "operationId": "8755732a5d0ab26b14b83898e1815f1c",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Code de projection généré"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/projection/authenticate": {
+            "post": {
+                "tags": [
+                    "Projection"
+                ],
+                "summary": "Authentifier l'écran de projection",
+                "description": "Authentifie l'écran de projection via code d'accès.",
+                "operationId": "3fe9adb2776716d597d1744e76298654",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "access_code"
+                                ],
+                                "properties": {
+                                    "access_code": {
+                                        "type": "string",
+                                        "maxLength": 6,
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Authentification réussie"
+                    },
+                    "401": {
+                        "description": "Code invalide"
+                    }
+                }
+            }
+        },
+        "/projection/{accessCode}/sync": {
+            "get": {
+                "tags": [
+                    "Projection"
+                ],
+                "summary": "Synchroniser l'état de la session pour la projection",
+                "description": "Synchronise l'état complet de la session pour la projection.\nEndpoint principal appelé régulièrement ou après reconnexion.",
+                "operationId": "f0f79eef24fd0c4970634432d3c6a9b0",
+                "parameters": [
+                    {
+                        "name": "accessCode",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "État complet de la session"
+                    },
+                    "401": {
+                        "description": "Code invalide"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "sanctum": {
+                "type": "http",
+                "description": "Token Sanctum admin (obtenu via POST /admin/login)",
+                "bearerFormat": "Sanctum Token",
+                "scheme": "bearer"
+            },
+            "playerToken": {
+                "type": "apiKey",
+                "description": "Token d'accès joueur (64 caractères, reçu après sélection)",
+                "name": "X-Player-Token",
+                "in": "header"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Admin Auth",
+            "description": "Authentification administrateur"
+        },
+        {
+            "name": "Sessions",
+            "description": "CRUD des sessions de jeu"
+        },
+        {
+            "name": "Rounds",
+            "description": "Gestion des manches"
+        },
+        {
+            "name": "Questions",
+            "description": "CRUD des questions par manche"
+        },
+        {
+            "name": "Preselection Questions",
+            "description": "Questions de pré-sélection"
+        },
+        {
+            "name": "Game Engine",
+            "description": "Moteur de jeu admin (cycle de vie complet)"
+        },
+        {
+            "name": "Dashboard",
+            "description": "Tableau de bord temps réel"
+        },
+        {
+            "name": "Player Registration",
+            "description": "Inscription des joueurs"
+        },
+        {
+            "name": "Player Game",
+            "description": "Actions joueur en jeu"
+        },
+        {
+            "name": "Player Preselection",
+            "description": "Pré-sélection joueur"
+        },
+        {
+            "name": "Projection",
+            "description": "Écran de projection public"
+        }
+    ]
+}

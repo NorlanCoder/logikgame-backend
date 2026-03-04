@@ -15,9 +15,24 @@ use App\Models\Session;
 use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use OpenApi\Attributes as OA;
 
 class QuestionController extends Controller
 {
+    #[OA\Get(
+        path: '/admin/sessions/{session}/rounds/{round}/questions',
+        summary: 'Lister les questions',
+        description: 'Retourne les questions d\'une manche.',
+        security: [['sanctum' => []]],
+        tags: ['Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Liste des questions'),
+        ],
+    )]
     public function index(Session $session, SessionRound $round): AnonymousResourceCollection
     {
         $questions = $round->questions()
@@ -27,6 +42,46 @@ class QuestionController extends Controller
         return QuestionResource::collection($questions);
     }
 
+    #[OA\Post(
+        path: '/admin/sessions/{session}/rounds/{round}/questions',
+        summary: 'Créer une question',
+        description: 'Crée une question avec choix QCM et indice optionnel.',
+        security: [['sanctum' => []]],
+        tags: ['Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['text', 'answer_type', 'correct_answer', 'duration'],
+                properties: [
+                    new OA\Property(property: 'text', type: 'string'),
+                    new OA\Property(property: 'answer_type', type: 'string', enum: ['qcm', 'text', 'number']),
+                    new OA\Property(property: 'correct_answer', type: 'string'),
+                    new OA\Property(property: 'duration', type: 'integer', example: 30),
+                    new OA\Property(property: 'media_url', type: 'string', nullable: true),
+                    new OA\Property(property: 'media_type', type: 'string', enum: ['none', 'image', 'video', 'audio']),
+                    new OA\Property(property: 'choices', type: 'array', items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: 'label', type: 'string'),
+                            new OA\Property(property: 'is_correct', type: 'boolean'),
+                            new OA\Property(property: 'display_order', type: 'integer'),
+                        ],
+                    )),
+                    new OA\Property(property: 'hint', type: 'object', nullable: true, properties: [
+                        new OA\Property(property: 'hint_type', type: 'string'),
+                        new OA\Property(property: 'hint_data', type: 'string'),
+                    ]),
+                ],
+            ),
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Question créée'),
+            new OA\Response(response: 422, description: 'Validation échouée'),
+        ],
+    )]
     public function store(StoreQuestionRequest $request, Session $session, SessionRound $round): JsonResponse
     {
         $nextOrder = $round->questions()->max('display_order') + 1;
@@ -70,6 +125,21 @@ class QuestionController extends Controller
         );
     }
 
+    #[OA\Get(
+        path: '/admin/sessions/{session}/rounds/{round}/questions/{question}',
+        summary: 'Détail d\'une question',
+        description: 'Retourne le détail complet d\'une question avec choix et indice.',
+        security: [['sanctum' => []]],
+        tags: ['Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'question', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Détail question'),
+        ],
+    )]
     public function show(Session $session, SessionRound $round, Question $question): QuestionResource
     {
         $question->load(['choices', 'hint']);
@@ -77,6 +147,22 @@ class QuestionController extends Controller
         return new QuestionResource($question);
     }
 
+    #[OA\Put(
+        path: '/admin/sessions/{session}/rounds/{round}/questions/{question}',
+        summary: 'Modifier une question',
+        description: 'Met à jour une question (statut Pending uniquement).',
+        security: [['sanctum' => []]],
+        tags: ['Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'question', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Question modifiée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function update(UpdateQuestionRequest $request, Session $session, SessionRound $round, Question $question): JsonResponse
     {
         if ($question->status !== QuestionStatus::Pending) {
@@ -90,6 +176,22 @@ class QuestionController extends Controller
         return response()->json(new QuestionResource($question->load(['choices', 'hint'])));
     }
 
+    #[OA\Delete(
+        path: '/admin/sessions/{session}/rounds/{round}/questions/{question}',
+        summary: 'Supprimer une question',
+        description: 'Supprime une question (statut Pending uniquement).',
+        security: [['sanctum' => []]],
+        tags: ['Questions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'question', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 204, description: 'Question supprimée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
     public function destroy(Session $session, SessionRound $round, Question $question): JsonResponse
     {
         if ($question->status !== QuestionStatus::Pending) {
