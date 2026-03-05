@@ -101,7 +101,7 @@ describe('POST /api/admin/sessions/{session}/rounds/{round}/questions', function
             ->postJson("/api/admin/sessions/{$this->session->id}/rounds/{$round->id}/questions", []);
 
         $response->assertStatus(422)
-            ->assertJsonValidationErrors(['text', 'answer_type', 'correct_answer', 'duration']);
+            ->assertJsonValidationErrors(['text', 'answer_type', 'correct_answer']);
     });
 });
 

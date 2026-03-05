@@ -245,7 +245,7 @@
                 "tags": [
                     "Game Engine"
                 ],
-                "summary": "Ouvrir les inscriptions",
+                "summary": "Ouvrir la pré-sélection (inscriptions + quiz)",
                 "description": "Ouvre les inscriptions pour une session.",
                 "operationId": "d2fe0b2e763db6c9ad9dcfb2e6d54bbd",
                 "parameters": [
@@ -260,7 +260,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Inscriptions ouvertes"
+                        "description": "Pré-sélection ouverte — inscriptions et quiz actifs"
                     },
                     "422": {
                         "description": "Statut invalide"
@@ -278,7 +278,7 @@
                 "tags": [
                     "Game Engine"
                 ],
-                "summary": "Clôturer les inscriptions",
+                "summary": "Clôturer la pré-sélection (inscriptions + quiz)",
                 "description": "Clôture les inscriptions.",
                 "operationId": "5c1bf9f9e1e5e3ae44e958a5cff51a6b",
                 "parameters": [
@@ -293,7 +293,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Inscriptions clôturées"
+                        "description": "Pré-sélection clôturée"
                     },
                     "422": {
                         "description": "Statut invalide"
@@ -909,16 +909,16 @@
                 "requestBody": {
                     "required": true,
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
                                 "required": [
                                     "text",
-                                    "answer_type",
-                                    "correct_answer"
+                                    "answer_type"
                                 ],
                                 "properties": {
                                     "text": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "maxLength": 2000
                                     },
                                     "answer_type": {
                                         "type": "string",
@@ -929,9 +929,42 @@
                                         ]
                                     },
                                     "correct_answer": {
-                                        "type": "string"
+                                        "description": "Obligatoire pour text/number. Pour qcm, auto-dérivé du choix is_correct=1.",
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "duration": {
+                                        "description": "Durée en secondes (défaut: 30)",
+                                        "type": "integer",
+                                        "example": 30
+                                    },
+                                    "display_order": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "number_is_decimal": {
+                                        "description": "Uniquement pour answer_type=number",
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "media_file": {
+                                        "description": "Fichier média (image/vidéo/audio, max 50Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "media_type": {
+                                        "description": "Auto-détecté si non fourni",
+                                        "type": "string",
+                                        "enum": [
+                                            "none",
+                                            "image",
+                                            "video",
+                                            "audio"
+                                        ]
                                     },
                                     "choices": {
+                                        "description": "Obligatoire si answer_type=qcm (4 à 6 choix)",
                                         "type": "array",
                                         "items": {
                                             "properties": {
@@ -940,6 +973,10 @@
                                                 },
                                                 "is_correct": {
                                                     "type": "boolean"
+                                                },
+                                                "display_order": {
+                                                    "type": "integer",
+                                                    "nullable": true
                                                 }
                                             },
                                             "type": "object"
@@ -1007,6 +1044,7 @@
                     "Preselection Questions"
                 ],
                 "summary": "Modifier question pré-sélection",
+                "description": "Envoyer via POST avec le champ `_method=PUT` pour supporter les fichiers (multipart/form-data).",
                 "operationId": "c264fce4ded3240a8aabcfa2a3e33158",
                 "parameters": [
                     {
@@ -1026,6 +1064,93 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "properties": {
+                                    "_method": {
+                                        "description": "Workaround navigateur pour PUT multipart",
+                                        "type": "string",
+                                        "example": "PUT"
+                                    },
+                                    "text": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "maxLength": 2000
+                                    },
+                                    "answer_type": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "qcm",
+                                            "text",
+                                            "number"
+                                        ]
+                                    },
+                                    "correct_answer": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "duration": {
+                                        "description": "Durée en secondes",
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "display_order": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "number_is_decimal": {
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "media_file": {
+                                        "description": "Remplace le fichier existant (max 50Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "media_type": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "none",
+                                            "image",
+                                            "video",
+                                            "audio"
+                                        ]
+                                    },
+                                    "remove_media": {
+                                        "description": "Supprimer le média existant sans en uploader un nouveau",
+                                        "type": "boolean"
+                                    },
+                                    "choices": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "is_correct": {
+                                                    "type": "boolean"
+                                                },
+                                                "display_order": {
+                                                    "type": "integer",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
                 "responses": {
                     "200": {
                         "description": "Question modifiée"
@@ -1141,17 +1266,16 @@
                 "requestBody": {
                     "required": true,
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
                                 "required": [
                                     "text",
-                                    "answer_type",
-                                    "correct_answer",
-                                    "duration"
+                                    "answer_type"
                                 ],
                                 "properties": {
                                     "text": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "maxLength": 2000
                                     },
                                     "answer_type": {
                                         "type": "string",
@@ -1162,17 +1286,32 @@
                                         ]
                                     },
                                     "correct_answer": {
-                                        "type": "string"
-                                    },
-                                    "duration": {
-                                        "type": "integer",
-                                        "example": 30
-                                    },
-                                    "media_url": {
+                                        "description": "Obligatoire pour text/number. Pour qcm, auto-dérivé du choix is_correct=1.",
                                         "type": "string",
                                         "nullable": true
                                     },
+                                    "duration": {
+                                        "description": "Durée en secondes (défaut: 30)",
+                                        "type": "integer",
+                                        "example": 30
+                                    },
+                                    "display_order": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "number_is_decimal": {
+                                        "description": "Uniquement pour answer_type=number",
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "media_file": {
+                                        "description": "Fichier média (image/vidéo/audio, max 50Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
                                     "media_type": {
+                                        "description": "Auto-détecté si non fourni",
                                         "type": "string",
                                         "enum": [
                                             "none",
@@ -1182,6 +1321,7 @@
                                         ]
                                     },
                                     "choices": {
+                                        "description": "Obligatoire si answer_type=qcm (2 à 6 choix)",
                                         "type": "array",
                                         "items": {
                                             "properties": {
@@ -1192,19 +1332,58 @@
                                                     "type": "boolean"
                                                 },
                                                 "display_order": {
-                                                    "type": "integer"
+                                                    "type": "integer",
+                                                    "nullable": true
                                                 }
                                             },
                                             "type": "object"
                                         }
                                     },
                                     "hint": {
+                                        "description": "Indice — uniquement pour les manches de type hint (manche 2)",
                                         "properties": {
                                             "hint_type": {
-                                                "type": "string"
+                                                "description": "Type d'indice selon le type de question",
+                                                "type": "string",
+                                                "enum": [
+                                                    "remove_choices",
+                                                    "reveal_letters",
+                                                    "reduce_range"
+                                                ]
                                             },
-                                            "hint_data": {
-                                                "type": "string"
+                                            "time_penalty_seconds": {
+                                                "description": "Secondes retirées du timer quand l'indice est activé",
+                                                "type": "integer",
+                                                "nullable": true
+                                            },
+                                            "removed_choice_ids": {
+                                                "description": "IDs des choix à retirer (hint_type=remove_choices)",
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "integer"
+                                                },
+                                                "nullable": true
+                                            },
+                                            "revealed_letters": {
+                                                "description": "Lettres révélées (hint_type=reveal_letters)",
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                },
+                                                "nullable": true
+                                            },
+                                            "range_hint_text": {
+                                                "description": "Texte de l'indice de plage (hint_type=range), ex: \"Entre 50 et 100\"",
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "range_min": {
+                                                "type": "number",
+                                                "nullable": true
+                                            },
+                                            "range_max": {
+                                                "type": "number",
+                                                "nullable": true
                                             }
                                         },
                                         "type": "object",
@@ -1281,7 +1460,7 @@
                     "Questions"
                 ],
                 "summary": "Modifier une question",
-                "description": "Met à jour une question (statut Pending uniquement).",
+                "description": "Met à jour une question (statut Pending uniquement). Envoyer via POST avec le champ `_method=PUT` pour supporter les fichiers (multipart/form-data).",
                 "operationId": "34d6753fce3dd3b2b2aae6c0d400e0e6",
                 "parameters": [
                     {
@@ -1309,12 +1488,143 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "properties": {
+                                    "_method": {
+                                        "description": "Workaround navigateur pour PUT multipart",
+                                        "type": "string",
+                                        "example": "PUT"
+                                    },
+                                    "text": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "maxLength": 2000
+                                    },
+                                    "answer_type": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "qcm",
+                                            "text",
+                                            "number"
+                                        ]
+                                    },
+                                    "correct_answer": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "duration": {
+                                        "description": "Durée en secondes",
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "display_order": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "number_is_decimal": {
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "media_file": {
+                                        "description": "Remplace le fichier existant (max 50Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "media_type": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "none",
+                                            "image",
+                                            "video",
+                                            "audio"
+                                        ]
+                                    },
+                                    "remove_media": {
+                                        "description": "Supprimer le média existant sans en uploader un nouveau",
+                                        "type": "boolean"
+                                    },
+                                    "choices": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "is_correct": {
+                                                    "type": "boolean"
+                                                },
+                                                "display_order": {
+                                                    "type": "integer",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "nullable": true
+                                    },
+                                    "hint": {
+                                        "properties": {
+                                            "hint_type": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "remove_choices",
+                                                    "reveal_letters",
+                                                    "reduce_range"
+                                                ]
+                                            },
+                                            "time_penalty_seconds": {
+                                                "type": "integer",
+                                                "nullable": true
+                                            },
+                                            "removed_choice_ids": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "integer"
+                                                },
+                                                "nullable": true
+                                            },
+                                            "revealed_letters": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                },
+                                                "nullable": true
+                                            },
+                                            "range_hint_text": {
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "range_min": {
+                                                "type": "number",
+                                                "nullable": true
+                                            },
+                                            "range_max": {
+                                                "type": "number",
+                                                "nullable": true
+                                            }
+                                        },
+                                        "type": "object",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
                 "responses": {
                     "200": {
                         "description": "Question modifiée"
                     },
                     "422": {
-                        "description": "Statut invalide"
+                        "description": "Statut invalide ou validation échouée"
                     }
                 },
                 "security": [
@@ -1371,6 +1681,433 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/rounds/{round}/questions/{question}/hint": {
+            "get": {
+                "tags": [
+                    "Question Hints"
+                ],
+                "summary": "Récupérer l'indice d'une question",
+                "operationId": "52f6fadf717b1354dab8697f20eb1d4c",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Indice de la question"
+                    },
+                    "404": {
+                        "description": "Aucun indice configuré"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Question Hints"
+                ],
+                "summary": "Créer ou remplacer l'indice d'une question",
+                "description": "Uniquement pour les questions des manches de type \"hint\" (manche 2). Crée l'indice s'il n'existe pas, le remplace sinon.",
+                "operationId": "91541ff387146363d0d494e05e6ea7be",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "hint_type"
+                                ],
+                                "properties": {
+                                    "hint_type": {
+                                        "description": "Type d'indice selon le type de question",
+                                        "type": "string",
+                                        "enum": [
+                                            "remove_choices",
+                                            "reveal_letters",
+                                            "reduce_range"
+                                        ]
+                                    },
+                                    "time_penalty_seconds": {
+                                        "description": "Secondes retirées du timer quand l'indice est activé",
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "removed_choice_ids": {
+                                        "description": "IDs des choix à masquer (hint_type=remove_choices)",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "integer"
+                                        },
+                                        "nullable": true
+                                    },
+                                    "revealed_letters": {
+                                        "description": "Positions des lettres révélées (hint_type=reveal_letters)",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "nullable": true
+                                    },
+                                    "range_hint_text": {
+                                        "description": "Texte d'indice libre (hint_type=range), ex: \"Entre 50 et 100\"",
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "range_min": {
+                                        "type": "number",
+                                        "nullable": true
+                                    },
+                                    "range_max": {
+                                        "type": "number",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Indice mis à jour"
+                    },
+                    "422": {
+                        "description": "Validation échouée ou manche incompatible"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Question Hints"
+                ],
+                "summary": "Supprimer l'indice d'une question",
+                "operationId": "642b93d7b23e927ab7616ed765de3715",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Indice supprimé"
+                    },
+                    "404": {
+                        "description": "Aucun indice à supprimer"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/rounds/{round}/questions/{question}/second-chance": {
+            "get": {
+                "tags": [
+                    "Second Chance Questions"
+                ],
+                "summary": "Récupérer la question de seconde chance",
+                "description": "Retourne la question de seconde chance associée à une question de la manche 3.",
+                "operationId": "e07544c462f3aab219dd811d67a93177",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Question de seconde chance"
+                    },
+                    "404": {
+                        "description": "Aucune question de seconde chance configurée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Second Chance Questions"
+                ],
+                "summary": "Créer ou remplacer la question de seconde chance",
+                "description": "Uniquement pour les questions de la manche de type \"second_chance\" (manche 3). Envoyer via POST + `_method=PUT` pour supporter les fichiers.",
+                "operationId": "d3f54e1d46bc2a03697496d309c049be",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "text",
+                                    "answer_type"
+                                ],
+                                "properties": {
+                                    "_method": {
+                                        "description": "Workaround navigateur pour PUT multipart",
+                                        "type": "string",
+                                        "example": "PUT"
+                                    },
+                                    "text": {
+                                        "type": "string",
+                                        "maxLength": 2000
+                                    },
+                                    "answer_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "qcm",
+                                            "text",
+                                            "number"
+                                        ]
+                                    },
+                                    "correct_answer": {
+                                        "description": "Obligatoire pour text/number. Pour qcm, auto-dérivé du choix is_correct=1.",
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "duration": {
+                                        "description": "Durée en secondes (défaut: 30)",
+                                        "type": "integer",
+                                        "example": 30
+                                    },
+                                    "number_is_decimal": {
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "media_file": {
+                                        "description": "Fichier média (max 50Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "media_type": {
+                                        "description": "Auto-détecté si non fourni",
+                                        "type": "string",
+                                        "enum": [
+                                            "none",
+                                            "image",
+                                            "video",
+                                            "audio"
+                                        ]
+                                    },
+                                    "remove_media": {
+                                        "description": "Supprimer le média existant",
+                                        "type": "boolean"
+                                    },
+                                    "choices": {
+                                        "description": "Obligatoire si answer_type=qcm (2 à 6 choix)",
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string"
+                                                },
+                                                "is_correct": {
+                                                    "type": "boolean"
+                                                },
+                                                "display_order": {
+                                                    "type": "integer",
+                                                    "nullable": true
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Question de seconde chance créée ou mise à jour"
+                    },
+                    "422": {
+                        "description": "Validation échouée ou manche incompatible"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Second Chance Questions"
+                ],
+                "summary": "Supprimer la question de seconde chance",
+                "operationId": "f54211ffab48a93fd131979cc38a9e18",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "round",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "question",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Question supprimée"
+                    },
+                    "404": {
+                        "description": "Aucune question de seconde chance à supprimer"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions": {
             "get": {
                 "tags": [
@@ -1403,7 +2140,7 @@
                 "requestBody": {
                     "required": true,
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
                                 "required": [
                                     "name",
@@ -1427,8 +2164,39 @@
                                         "type": "integer",
                                         "example": 100
                                     },
-                                    "cover_image_url": {
+                                    "cover_image": {
+                                        "description": "Image de couverture (max 5Mo)",
                                         "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "registration_opens_at": {
+                                        "description": "Début des inscriptions",
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "registration_closes_at": {
+                                        "description": "Fin des inscriptions (doit être après registration_opens_at)",
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "preselection_opens_at": {
+                                        "description": "Début de la pré-sélection",
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "preselection_closes_at": {
+                                        "description": "Fin de la pré-sélection (doit être après preselection_opens_at)",
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "reconnection_delay": {
+                                        "description": "Délai de reconnexion en secondes (5-120)",
+                                        "type": "integer",
                                         "nullable": true
                                     }
                                 },
@@ -1503,7 +2271,7 @@
                 ],
                 "requestBody": {
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
                                 "properties": {
                                     "name": {
@@ -1518,6 +2286,42 @@
                                     },
                                     "max_players": {
                                         "type": "integer"
+                                    },
+                                    "cover_image": {
+                                        "description": "Image de couverture (max 5Mo)",
+                                        "type": "string",
+                                        "format": "binary",
+                                        "nullable": true
+                                    },
+                                    "remove_cover_image": {
+                                        "description": "Supprimer l'image de couverture existante",
+                                        "type": "boolean",
+                                        "nullable": true
+                                    },
+                                    "registration_opens_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "registration_closes_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "preselection_opens_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "preselection_closes_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    },
+                                    "reconnection_delay": {
+                                        "description": "Délai de reconnexion en secondes (5-120)",
+                                        "type": "integer",
+                                        "nullable": true
                                     }
                                 },
                                 "type": "object"
@@ -2049,6 +2853,59 @@
                 }
             }
         },
+        "/player/sessions": {
+            "get": {
+                "tags": [
+                    "Player Sessions"
+                ],
+                "summary": "Lister les sessions ouvertes (inscription ou présélection)",
+                "description": "Retourne les sessions publiquement accessibles :\n- preselection → inscriptions + quiz actifs",
+                "operationId": "840ccfb79990b4889ae740f3d962e00b",
+                "responses": {
+                    "200": {
+                        "description": "Liste des sessions ouvertes",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/player/sessions/{session}": {
+            "get": {
+                "tags": [
+                    "Player Sessions"
+                ],
+                "summary": "Détail public d'une session",
+                "description": "Retourne le détail public d'une session.\nAccessible pour toute session (pas seulement preselection).",
+                "operationId": "70ba4969775e492b0ebc629654c44dde",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail de la session"
+                    },
+                    "404": {
+                        "description": "Session introuvable"
+                    }
+                }
+            }
+        },
         "/admin/sessions/{session}/projection/generate": {
             "post": {
                 "tags": [
@@ -2206,6 +3063,18 @@
         {
             "name": "Projection",
             "description": "Écran de projection public"
+        },
+        {
+            "name": "Question Hints",
+            "description": "Question Hints"
+        },
+        {
+            "name": "Second Chance Questions",
+            "description": "Second Chance Questions"
+        },
+        {
+            "name": "Player Sessions",
+            "description": "Player Sessions"
         }
     ]
 }

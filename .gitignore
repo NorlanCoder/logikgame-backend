@@ -25,3 +25,5 @@ Thumbs.db
 tests_err.txt
 tests_out.txt
 tests_output.txt
+.claude/
+test_api.sh

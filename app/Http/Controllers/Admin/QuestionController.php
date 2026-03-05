@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\MediaType;
 use App\Enums\QuestionStatus;
 use App\Enums\RoundType;
 use App\Http\Controllers\Controller;
@@ -14,7 +15,8 @@ use App\Models\QuestionHint;
 use App\Models\Session;
 use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use OpenApi\Attributes as OA;
 
 class QuestionController extends Controller
@@ -33,13 +35,23 @@ class QuestionController extends Controller
             new OA\Response(response: 200, description: 'Liste des questions'),
         ],
     )]
-    public function index(Session $session, SessionRound $round): AnonymousResourceCollection
+    public function index(Session $session, SessionRound $round): JsonResponse
     {
         $questions = $round->questions()
-            ->withCount('choices')
+            ->with(['choices', 'hint', 'secondChanceQuestion.choices'])
             ->get();
 
-        return QuestionResource::collection($questions);
+        return response()->json([
+            'round' => [
+                'id' => $round->id,
+                'round_number' => $round->round_number,
+                'round_type' => $round->round_type,
+                'name' => $round->name,
+                'status' => $round->status,
+                'is_active' => $round->is_active,
+            ],
+            'data' => QuestionResource::collection($questions),
+        ]);
     }
 
     #[OA\Post(
@@ -54,27 +66,37 @@ class QuestionController extends Controller
         ],
         requestBody: new OA\RequestBody(
             required: true,
-            content: new OA\JsonContent(
-                required: ['text', 'answer_type', 'correct_answer', 'duration'],
-                properties: [
-                    new OA\Property(property: 'text', type: 'string'),
-                    new OA\Property(property: 'answer_type', type: 'string', enum: ['qcm', 'text', 'number']),
-                    new OA\Property(property: 'correct_answer', type: 'string'),
-                    new OA\Property(property: 'duration', type: 'integer', example: 30),
-                    new OA\Property(property: 'media_url', type: 'string', nullable: true),
-                    new OA\Property(property: 'media_type', type: 'string', enum: ['none', 'image', 'video', 'audio']),
-                    new OA\Property(property: 'choices', type: 'array', items: new OA\Items(
-                        properties: [
-                            new OA\Property(property: 'label', type: 'string'),
-                            new OA\Property(property: 'is_correct', type: 'boolean'),
-                            new OA\Property(property: 'display_order', type: 'integer'),
-                        ],
-                    )),
-                    new OA\Property(property: 'hint', type: 'object', nullable: true, properties: [
-                        new OA\Property(property: 'hint_type', type: 'string'),
-                        new OA\Property(property: 'hint_data', type: 'string'),
-                    ]),
-                ],
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['text', 'answer_type'],
+                    properties: [
+                        new OA\Property(property: 'text', type: 'string', maxLength: 2000),
+                        new OA\Property(property: 'answer_type', type: 'string', enum: ['qcm', 'text', 'number']),
+                        new OA\Property(property: 'correct_answer', type: 'string', description: 'Obligatoire pour text/number. Pour qcm, auto-dérivé du choix is_correct=1.', nullable: true),
+                        new OA\Property(property: 'duration', type: 'integer', example: 30, description: 'Durée en secondes (défaut: 30)'),
+                        new OA\Property(property: 'display_order', type: 'integer', nullable: true),
+                        new OA\Property(property: 'number_is_decimal', type: 'boolean', nullable: true, description: 'Uniquement pour answer_type=number'),
+                        new OA\Property(property: 'media_file', type: 'string', format: 'binary', nullable: true, description: 'Fichier média (image/vidéo/audio, max 50Mo)'),
+                        new OA\Property(property: 'media_type', type: 'string', enum: ['none', 'image', 'video', 'audio'], description: 'Auto-détecté si non fourni'),
+                        new OA\Property(property: 'choices', type: 'array', description: 'Obligatoire si answer_type=qcm (2 à 6 choix)', items: new OA\Items(
+                            properties: [
+                                new OA\Property(property: 'label', type: 'string'),
+                                new OA\Property(property: 'is_correct', type: 'boolean'),
+                                new OA\Property(property: 'display_order', type: 'integer', nullable: true),
+                            ],
+                        )),
+                        new OA\Property(property: 'hint', type: 'object', nullable: true, description: 'Indice — uniquement pour les manches de type hint (manche 2)', properties: [
+                            new OA\Property(property: 'hint_type', type: 'string', enum: ['remove_choices', 'reveal_letters', 'reduce_range'], description: 'Type d\'indice selon le type de question'),
+                            new OA\Property(property: 'time_penalty_seconds', type: 'integer', nullable: true, description: 'Secondes retirées du timer quand l\'indice est activé'),
+                            new OA\Property(property: 'removed_choice_ids', type: 'array', nullable: true, description: 'IDs des choix à retirer (hint_type=remove_choices)', items: new OA\Items(type: 'integer')),
+                            new OA\Property(property: 'revealed_letters', type: 'array', nullable: true, description: 'Lettres révélées (hint_type=reveal_letters)', items: new OA\Items(type: 'string')),
+                            new OA\Property(property: 'range_hint_text', type: 'string', nullable: true, description: 'Texte de l\'indice de plage (hint_type=range), ex: "Entre 50 et 100"'),
+                            new OA\Property(property: 'range_min', type: 'number', nullable: true),
+                            new OA\Property(property: 'range_max', type: 'number', nullable: true),
+                        ]),
+                    ],
+                ),
             ),
         ),
         responses: [
@@ -86,15 +108,29 @@ class QuestionController extends Controller
     {
         $nextOrder = $round->questions()->max('display_order') + 1;
 
+        $mediaUrl = null;
+        $mediaType = MediaType::None;
+
+        if ($request->hasFile('media_file')) {
+            $file = $request->file('media_file');
+            $mediaUrl = $file->store('media/questions', 'public');
+            $mediaType = $request->enum('media_type', MediaType::class) ?? $this->detectMediaType($file);
+        }
+
+        // Pour QCM, dériver la bonne réponse depuis le choix marqué is_correct
+        $correctAnswer = $request->answer_type === 'qcm'
+            ? collect($request->choices ?? [])->firstWhere('is_correct', true)['label'] ?? null
+            : $request->correct_answer;
+
         $question = Question::create([
             'session_round_id' => $round->id,
             'text' => $request->text,
             'answer_type' => $request->answer_type,
-            'correct_answer' => $request->correct_answer,
-            'duration' => $request->duration,
+            'correct_answer' => $correctAnswer,
+            'duration' => $request->input('duration', 30),
             'display_order' => $request->input('display_order', $nextOrder),
-            'media_url' => $request->media_url,
-            'media_type' => $request->input('media_type', 'none'),
+            'media_url' => $mediaUrl,
+            'media_type' => $mediaType,
             'number_is_decimal' => $request->boolean('number_is_decimal', false),
             'status' => QuestionStatus::Pending,
         ]);
@@ -150,7 +186,7 @@ class QuestionController extends Controller
     #[OA\Put(
         path: '/admin/sessions/{session}/rounds/{round}/questions/{question}',
         summary: 'Modifier une question',
-        description: 'Met à jour une question (statut Pending uniquement).',
+        description: 'Met à jour une question (statut Pending uniquement). Envoyer via POST avec le champ `_method=PUT` pour supporter les fichiers (multipart/form-data).',
         security: [['sanctum' => []]],
         tags: ['Questions'],
         parameters: [
@@ -158,9 +194,45 @@ class QuestionController extends Controller
             new OA\Parameter(name: 'round', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
             new OA\Parameter(name: 'question', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
         ],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    properties: [
+                        new OA\Property(property: '_method', type: 'string', example: 'PUT', description: 'Workaround navigateur pour PUT multipart'),
+                        new OA\Property(property: 'text', type: 'string', maxLength: 2000, nullable: true),
+                        new OA\Property(property: 'answer_type', type: 'string', enum: ['qcm', 'text', 'number'], nullable: true),
+                        new OA\Property(property: 'correct_answer', type: 'string', nullable: true),
+                        new OA\Property(property: 'duration', type: 'integer', nullable: true, description: 'Durée en secondes'),
+                        new OA\Property(property: 'display_order', type: 'integer', nullable: true),
+                        new OA\Property(property: 'number_is_decimal', type: 'boolean', nullable: true),
+                        new OA\Property(property: 'media_file', type: 'string', format: 'binary', nullable: true, description: 'Remplace le fichier existant (max 50Mo)'),
+                        new OA\Property(property: 'media_type', type: 'string', enum: ['none', 'image', 'video', 'audio'], nullable: true),
+                        new OA\Property(property: 'remove_media', type: 'boolean', description: 'Supprimer le média existant sans en uploader un nouveau'),
+                        new OA\Property(property: 'choices', type: 'array', nullable: true, items: new OA\Items(
+                            properties: [
+                                new OA\Property(property: 'label', type: 'string'),
+                                new OA\Property(property: 'is_correct', type: 'boolean'),
+                                new OA\Property(property: 'display_order', type: 'integer', nullable: true),
+                            ],
+                        )),
+                        new OA\Property(property: 'hint', type: 'object', nullable: true, properties: [
+                            new OA\Property(property: 'hint_type', type: 'string', enum: ['remove_choices', 'reveal_letters', 'reduce_range']),
+                            new OA\Property(property: 'time_penalty_seconds', type: 'integer', nullable: true),
+                            new OA\Property(property: 'removed_choice_ids', type: 'array', nullable: true, items: new OA\Items(type: 'integer')),
+                            new OA\Property(property: 'revealed_letters', type: 'array', nullable: true, items: new OA\Items(type: 'string')),
+                            new OA\Property(property: 'range_hint_text', type: 'string', nullable: true),
+                            new OA\Property(property: 'range_min', type: 'number', nullable: true),
+                            new OA\Property(property: 'range_max', type: 'number', nullable: true),
+                        ]),
+                    ],
+                ),
+            ),
+        ),
         responses: [
             new OA\Response(response: 200, description: 'Question modifiée'),
-            new OA\Response(response: 422, description: 'Statut invalide'),
+            new OA\Response(response: 422, description: 'Statut invalide ou validation échouée'),
         ],
     )]
     public function update(UpdateQuestionRequest $request, Session $session, SessionRound $round, Question $question): JsonResponse
@@ -171,7 +243,24 @@ class QuestionController extends Controller
             ], 422);
         }
 
-        $question->update($request->validated());
+        $data = collect($request->validated())->except(['media_file', 'remove_media'])->toArray();
+
+        if ($request->hasFile('media_file')) {
+            if ($question->media_url) {
+                Storage::disk('public')->delete($question->media_url);
+            }
+            $file = $request->file('media_file');
+            $data['media_url'] = $file->store('media/questions', 'public');
+            $data['media_type'] = $request->enum('media_type', MediaType::class) ?? $this->detectMediaType($file);
+        } elseif ($request->boolean('remove_media')) {
+            if ($question->media_url) {
+                Storage::disk('public')->delete($question->media_url);
+            }
+            $data['media_url'] = null;
+            $data['media_type'] = MediaType::None;
+        }
+
+        $question->update($data);
 
         return response()->json(new QuestionResource($question->load(['choices', 'hint'])));
     }
@@ -200,8 +289,24 @@ class QuestionController extends Controller
             ], 422);
         }
 
+        if ($question->media_url) {
+            Storage::disk('public')->delete($question->media_url);
+        }
+
         $question->delete();
 
         return response()->json(null, 204);
+    }
+
+    private function detectMediaType(UploadedFile $file): MediaType
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        return match (true) {
+            in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp']) => MediaType::Image,
+            in_array($extension, ['mp4', 'webm', 'mov']) => MediaType::Video,
+            in_array($extension, ['mp3', 'wav', 'ogg', 'aac']) => MediaType::Audio,
+            default => MediaType::None,
+        };
     }
 }

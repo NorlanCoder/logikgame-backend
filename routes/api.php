@@ -5,11 +5,14 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GameController as AdminGameController;
 use App\Http\Controllers\Admin\PreselectionQuestionController;
 use App\Http\Controllers\Admin\QuestionController;
+use App\Http\Controllers\Admin\QuestionHintController;
+use App\Http\Controllers\Admin\SecondChanceQuestionController;
 use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Admin\SessionRoundController;
 use App\Http\Controllers\Player\GameController as PlayerGameController;
 use App\Http\Controllers\Player\PreselectionController;
 use App\Http\Controllers\Player\RegistrationController;
+use App\Http\Controllers\Player\SessionController as PlayerSessionController;
 use App\Http\Controllers\Projection\ProjectionController;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +45,18 @@ Route::prefix('admin')->group(function () {
             Route::apiResource('rounds/{round}/questions', QuestionController::class)
                 ->except(['index']);
             Route::get('/rounds/{round}/questions', [QuestionController::class, 'index'])->name('admin.rounds.questions.index');
+
+            // Indice d'une question (manche 2)
+            Route::prefix('rounds/{round}/questions/{question}')->group(function () {
+                Route::get('/hint', [QuestionHintController::class, 'show']);
+                Route::put('/hint', [QuestionHintController::class, 'upsert']);
+                Route::delete('/hint', [QuestionHintController::class, 'destroy']);
+
+                // Question de seconde chance (manche 3)
+                Route::get('/second-chance', [SecondChanceQuestionController::class, 'show']);
+                Route::put('/second-chance', [SecondChanceQuestionController::class, 'upsert']);
+                Route::delete('/second-chance', [SecondChanceQuestionController::class, 'destroy']);
+            });
 
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
@@ -96,6 +111,10 @@ Route::prefix('admin')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('player')->group(function () {
+    // Sessions ouvertes (publique)
+    Route::get('/sessions', [PlayerSessionController::class, 'index']);
+    Route::get('/sessions/{session}', [PlayerSessionController::class, 'show']);
+
     // Inscription (publique)
     Route::post('/register', [RegistrationController::class, 'store']);
     Route::get('/registrations/{registration}', [RegistrationController::class, 'show']);

@@ -80,30 +80,25 @@ describe('Game Engine — Pre-game phase', function () {
         $this->rounds = $setup['rounds'];
     });
 
-    it('follows the session lifecycle: Draft → RegistrationOpen → Closed → Preselection → Ready → InProgress', function () {
+    it('follows the session lifecycle: Draft → Preselection → RegistrationClosed → Ready → InProgress', function () {
         $h = fn () => $this->withHeader('Authorization', "Bearer {$this->token}");
 
-        // Open registration
+        // Open preselection (inscriptions + quiz actifs en une étape)
         $h()->postJson(gameUrl($this->session, 'open-registration'))
             ->assertSuccessful();
-        expect($this->session->fresh()->status)->toBe(SessionStatus::RegistrationOpen);
+        expect($this->session->fresh()->status)->toBe(SessionStatus::Preselection);
 
-        // Register players
+        // Register players (possible pendant la pré-sélection)
         $players = Player::factory()->count(5)->create();
         $registrations = $players->map(fn ($p) => Registration::factory()->create([
             'session_id' => $this->session->id,
             'player_id' => $p->id,
         ]));
 
-        // Close registration
+        // Close preselection
         $h()->postJson(gameUrl($this->session, 'close-registration'))
             ->assertSuccessful();
         expect($this->session->fresh()->status)->toBe(SessionStatus::RegistrationClosed);
-
-        // Open preselection
-        $h()->postJson(gameUrl($this->session, 'open-preselection'))
-            ->assertSuccessful();
-        expect($this->session->fresh()->status)->toBe(SessionStatus::Preselection);
 
         // Select players
         $h()->postJson(gameUrl($this->session, 'select-players'), [

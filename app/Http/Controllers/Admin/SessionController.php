@@ -14,6 +14,7 @@ use App\Models\SessionRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Storage;
 use OpenApi\Attributes as OA;
 
 class SessionController extends Controller
@@ -48,15 +49,23 @@ class SessionController extends Controller
         tags: ['Sessions'],
         requestBody: new OA\RequestBody(
             required: true,
-            content: new OA\JsonContent(
-                required: ['name', 'scheduled_at', 'max_players'],
-                properties: [
-                    new OA\Property(property: 'name', type: 'string', example: 'LOGIK S1E01'),
-                    new OA\Property(property: 'description', type: 'string', nullable: true),
-                    new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
-                    new OA\Property(property: 'max_players', type: 'integer', example: 100),
-                    new OA\Property(property: 'cover_image_url', type: 'string', nullable: true),
-                ],
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['name', 'scheduled_at', 'max_players'],
+                    properties: [
+                        new OA\Property(property: 'name', type: 'string', example: 'LOGIK S1E01'),
+                        new OA\Property(property: 'description', type: 'string', nullable: true),
+                        new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
+                        new OA\Property(property: 'max_players', type: 'integer', example: 100),
+                        new OA\Property(property: 'cover_image', type: 'string', format: 'binary', nullable: true, description: 'Image de couverture (max 5Mo)'),
+                        new OA\Property(property: 'registration_opens_at', type: 'string', format: 'date-time', nullable: true, description: 'Début des inscriptions'),
+                        new OA\Property(property: 'registration_closes_at', type: 'string', format: 'date-time', nullable: true, description: 'Fin des inscriptions (doit être après registration_opens_at)'),
+                        new OA\Property(property: 'preselection_opens_at', type: 'string', format: 'date-time', nullable: true, description: 'Début de la pré-sélection'),
+                        new OA\Property(property: 'preselection_closes_at', type: 'string', format: 'date-time', nullable: true, description: 'Fin de la pré-sélection (doit être après preselection_opens_at)'),
+                        new OA\Property(property: 'reconnection_delay', type: 'integer', nullable: true, description: 'Délai de reconnexion en secondes (5-120)'),
+                    ],
+                ),
             ),
         ),
         responses: [
@@ -66,8 +75,14 @@ class SessionController extends Controller
     )]
     public function store(StoreSessionRequest $request): JsonResponse
     {
+        $data = collect($request->validated())->except('cover_image')->toArray();
+
+        if ($request->hasFile('cover_image')) {
+            $data['cover_image_url'] = $request->file('cover_image')->store('media/sessions', 'public');
+        }
+
         $session = Session::create([
-            ...$request->validated(),
+            ...$data,
             'admin_id' => $request->user()->id,
             'status' => SessionStatus::Draft,
             'projection_code' => strtoupper(substr(md5(uniqid()), 0, 8)),
@@ -115,13 +130,23 @@ class SessionController extends Controller
             new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
         ],
         requestBody: new OA\RequestBody(
-            content: new OA\JsonContent(
-                properties: [
-                    new OA\Property(property: 'name', type: 'string'),
-                    new OA\Property(property: 'description', type: 'string'),
-                    new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
-                    new OA\Property(property: 'max_players', type: 'integer'),
-                ],
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    properties: [
+                        new OA\Property(property: 'name', type: 'string'),
+                        new OA\Property(property: 'description', type: 'string'),
+                        new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time'),
+                        new OA\Property(property: 'max_players', type: 'integer'),
+                        new OA\Property(property: 'cover_image', type: 'string', format: 'binary', nullable: true, description: 'Image de couverture (max 5Mo)'),
+                        new OA\Property(property: 'remove_cover_image', type: 'boolean', nullable: true, description: 'Supprimer l\'image de couverture existante'),
+                        new OA\Property(property: 'registration_opens_at', type: 'string', format: 'date-time', nullable: true),
+                        new OA\Property(property: 'registration_closes_at', type: 'string', format: 'date-time', nullable: true),
+                        new OA\Property(property: 'preselection_opens_at', type: 'string', format: 'date-time', nullable: true),
+                        new OA\Property(property: 'preselection_closes_at', type: 'string', format: 'date-time', nullable: true),
+                        new OA\Property(property: 'reconnection_delay', type: 'integer', nullable: true, description: 'Délai de reconnexion en secondes (5-120)'),
+                    ],
+                ),
             ),
         ),
         responses: [
@@ -137,7 +162,21 @@ class SessionController extends Controller
             ], 422);
         }
 
-        $session->update($request->validated());
+        $data = collect($request->validated())->except(['cover_image', 'remove_cover_image'])->toArray();
+
+        if ($request->hasFile('cover_image')) {
+            if ($session->cover_image_url) {
+                Storage::disk('public')->delete($session->cover_image_url);
+            }
+            $data['cover_image_url'] = $request->file('cover_image')->store('media/sessions', 'public');
+        } elseif ($request->boolean('remove_cover_image')) {
+            if ($session->cover_image_url) {
+                Storage::disk('public')->delete($session->cover_image_url);
+            }
+            $data['cover_image_url'] = null;
+        }
+
+        $session->update($data);
 
         return response()->json(new SessionResource($session));
     }
@@ -162,6 +201,10 @@ class SessionController extends Controller
             return response()->json([
                 'message' => 'Seules les sessions en brouillon peuvent être supprimées.',
             ], 422);
+        }
+
+        if ($session->cover_image_url) {
+            Storage::disk('public')->delete($session->cover_image_url);
         }
 
         $session->delete();

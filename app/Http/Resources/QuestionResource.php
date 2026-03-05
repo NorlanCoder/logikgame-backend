@@ -23,7 +23,7 @@ class QuestionResource extends JsonResource
             'number_is_decimal' => $this->number_is_decimal,
             'duration' => $this->duration,
             'display_order' => $this->display_order,
-            'media_url' => $this->media_url,
+            'media_url' => $this->media_url ? asset('storage/'.$this->media_url) : null,
             'media_type' => $this->media_type,
             'status' => $this->status,
             'launched_at' => $this->launched_at?->toIso8601String(),
@@ -35,6 +35,26 @@ class QuestionResource extends JsonResource
                 'display_order' => $c->display_order,
             ])),
             'hint' => $this->when($isAdmin && $this->relationLoaded('hint'), $this->hint),
+            'second_chance_question' => $this->when(
+                $isAdmin && $this->relationLoaded('secondChanceQuestion') && $this->secondChanceQuestion !== null,
+                fn () => [
+                    'id' => $this->secondChanceQuestion->id,
+                    'text' => $this->secondChanceQuestion->text,
+                    'answer_type' => $this->secondChanceQuestion->answer_type,
+                    'correct_answer' => $this->secondChanceQuestion->correct_answer,
+                    'duration' => $this->secondChanceQuestion->duration,
+                    'media_url' => $this->secondChanceQuestion->media_url ? asset('storage/'.$this->secondChanceQuestion->media_url) : null,
+                    'media_type' => $this->secondChanceQuestion->media_type,
+                    'choices' => $this->secondChanceQuestion->relationLoaded('choices')
+                        ? $this->secondChanceQuestion->choices->map(fn ($c) => [
+                            'id' => $c->id,
+                            'label' => $c->label,
+                            'is_correct' => $c->is_correct,
+                            'display_order' => $c->display_order,
+                        ])
+                        : [],
+                ],
+            ),
         ];
     }
 }

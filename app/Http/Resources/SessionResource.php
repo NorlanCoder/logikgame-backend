@@ -16,7 +16,7 @@ class SessionResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'description' => $this->description,
-            'cover_image_url' => $this->cover_image_url,
+            'cover_image_url' => $this->cover_image_url ? asset('storage/'.$this->cover_image_url) : null,
             'scheduled_at' => $this->scheduled_at?->toIso8601String(),
             'max_players' => $this->max_players,
             'status' => $this->status,

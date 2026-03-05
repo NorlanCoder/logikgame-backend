@@ -41,10 +41,15 @@ class SessionFactory extends Factory
     public function registrationOpen(): static
     {
         return $this->state(fn (array $attributes) => [
-            'status' => SessionStatus::RegistrationOpen,
-            'registration_opens_at' => now()->subDay(),
-            'registration_closes_at' => now()->addDays(7),
+            'status' => SessionStatus::Preselection,
+            'preselection_opens_at' => now()->subDay(),
+            'preselection_closes_at' => now()->addDays(7),
         ]);
+    }
+
+    public function preselection(): static
+    {
+        return $this->registrationOpen();
     }
 
     public function inProgress(): static

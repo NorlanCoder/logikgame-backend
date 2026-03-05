@@ -55,24 +55,24 @@ class GameController extends Controller
      */
     #[OA\Post(
         path: '/admin/sessions/{session}/game/open-registration',
-        summary: 'Ouvrir les inscriptions',
+        summary: 'Ouvrir la pré-sélection (inscriptions + quiz)',
         security: [['sanctum' => []]],
         tags: ['Game Engine'],
         parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
         responses: [
-            new OA\Response(response: 200, description: 'Inscriptions ouvertes'),
+            new OA\Response(response: 200, description: 'Pré-sélection ouverte — inscriptions et quiz actifs'),
             new OA\Response(response: 422, description: 'Statut invalide'),
         ],
     )]
     public function openRegistration(Session $session): JsonResponse
     {
         if ($session->status !== SessionStatus::Draft) {
-            return $this->statusError('La session doit être en brouillon pour ouvrir les inscriptions.');
+            return $this->statusError('La session doit être en brouillon pour ouvrir la pré-sélection.');
         }
 
-        $session->update(['status' => SessionStatus::RegistrationOpen]);
+        $session->update(['status' => SessionStatus::Preselection]);
 
-        return response()->json(['status' => $session->status, 'message' => 'Inscriptions ouvertes.']);
+        return response()->json(['status' => $session->status, 'message' => 'Pré-sélection ouverte — inscriptions et quiz actifs.']);
     }
 
     /**
@@ -80,24 +80,24 @@ class GameController extends Controller
      */
     #[OA\Post(
         path: '/admin/sessions/{session}/game/close-registration',
-        summary: 'Clôturer les inscriptions',
+        summary: 'Clôturer la pré-sélection (inscriptions + quiz)',
         security: [['sanctum' => []]],
         tags: ['Game Engine'],
         parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
         responses: [
-            new OA\Response(response: 200, description: 'Inscriptions clôturées'),
+            new OA\Response(response: 200, description: 'Pré-sélection clôturée'),
             new OA\Response(response: 422, description: 'Statut invalide'),
         ],
     )]
     public function closeRegistration(Session $session): JsonResponse
     {
-        if ($session->status !== SessionStatus::RegistrationOpen) {
-            return $this->statusError('Les inscriptions ne sont pas ouvertes.');
+        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationOpen])) {
+            return $this->statusError('La pré-sélection n\'est pas active.');
         }
 
         $session->update(['status' => SessionStatus::RegistrationClosed]);
 
-        return response()->json(['status' => $session->status, 'message' => 'Inscriptions clôturées.']);
+        return response()->json(['status' => $session->status, 'message' => 'Pré-sélection clôturée.']);
     }
 
     /**
@@ -116,8 +116,8 @@ class GameController extends Controller
     )]
     public function openPreselection(Session $session): JsonResponse
     {
-        if ($session->status !== SessionStatus::RegistrationClosed) {
-            return $this->statusError('Les inscriptions doivent être clôturées avant la pré-sélection.');
+        if (! in_array($session->status, [SessionStatus::RegistrationClosed, SessionStatus::RegistrationOpen, SessionStatus::Draft])) {
+            return $this->statusError('Statut invalide pour ouvrir la pré-sélection.');
         }
 
         $session->update(['status' => SessionStatus::Preselection]);

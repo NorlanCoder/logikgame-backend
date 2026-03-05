@@ -48,7 +48,7 @@ class RegistrationController extends Controller
     {
         $session = Session::findOrFail($request->session_id);
 
-        if ($session->status !== SessionStatus::RegistrationOpen) {
+        if (! in_array($session->status, [SessionStatus::RegistrationOpen, SessionStatus::Preselection])) {
             return response()->json([
                 'message' => 'Les inscriptions ne sont pas ouvertes pour cette session.',
             ], 422);
