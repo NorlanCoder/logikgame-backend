@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
 
 class Registration extends Model
 {
@@ -20,11 +21,19 @@ class Registration extends Model
         'session_id',
         'player_id',
         'status',
+        'preselection_token',
         'confirmation_email_sent_at',
         'selection_email_sent_at',
         'rejection_email_sent_at',
         'registered_at',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $registration) {
+            $registration->preselection_token ??= Str::random(64);
+        });
+    }
 
     /**
      * @return array<string, string>

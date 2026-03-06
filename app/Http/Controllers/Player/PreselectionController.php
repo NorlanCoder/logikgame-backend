@@ -49,10 +49,9 @@ class PreselectionController extends Controller
         requestBody: new OA\RequestBody(
             required: true,
             content: new OA\JsonContent(
-                required: ['registration_id', 'answers'],
+                required: ['registration_token', 'answers'],
                 properties: [
-                    new OA\Property(property: 'registration_id', type: 'integer'),
-                    new OA\Property(property: 'registration_token', type: 'string', nullable: true),
+                    new OA\Property(property: 'registration_token', type: 'string'),
                     new OA\Property(
                         property: 'answers',
                         type: 'array',
@@ -77,20 +76,9 @@ class PreselectionController extends Controller
     public function submit(SubmitPreselectionAnswerRequest $request): JsonResponse
     {
         $registration = Registration::query()
-            ->where('id', $request->input('registration_id'))
+            ->where('preselection_token', $request->input('registration_token'))
             ->with(['session.preselectionQuestions.choices'])
             ->first();
-
-        if (! $registration) {
-            // Chercher par token si fourni
-            $registration = Registration::query()
-                ->whereHas('sessionPlayer', fn ($q) => $q->where('access_token', $request->registration_token))
-                ->orWhere(function ($q) use ($request) {
-                    $q->where('id', $request->input('registration_id', 0));
-                })
-                ->with(['session.preselectionQuestions.choices'])
-                ->first();
-        }
 
         if (! $registration) {
             return response()->json(['message' => 'Inscription non trouvée.'], 404);

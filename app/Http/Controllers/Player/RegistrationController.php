@@ -55,17 +55,22 @@ class RegistrationController extends Controller
         }
 
         $result = DB::transaction(function () use ($request, $session) {
-            // Trouver ou créer le joueur par email
-            $player = Player::firstOrCreate(
-                ['email' => $request->email],
-                [
-                    'full_name' => $request->full_name,
-                    'phone' => $request->phone,
-                    'pseudo' => $request->pseudo,
-                ]
-            );
+            // Trouver le joueur existant par email
+            $existingPlayer = Player::where('email', $request->email)->first();
 
-            // Vérifier si déjà inscrità cette session
+            // Si c'est un nouveau joueur, vérifier l'unicité globale du pseudo
+            if (! $existingPlayer && Player::where('pseudo', $request->pseudo)->exists()) {
+                abort(422, 'Ce pseudo est déjà utilisé. Veuillez en choisir un autre.');
+            }
+
+            $player = $existingPlayer ?? Player::create([
+                'email' => $request->email,
+                'full_name' => $request->full_name,
+                'phone' => $request->phone,
+                'pseudo' => $request->pseudo,
+            ]);
+
+            // Vérifier si déjà inscrit à cette session
             $existingRegistration = Registration::query()
                 ->where('session_id', $session->id)
                 ->where('player_id', $player->id)
