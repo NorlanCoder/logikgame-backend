@@ -19,6 +19,58 @@ use OpenApi\Attributes as OA;
 class PreselectionController extends Controller
 {
     /**
+     * Vérifie un token de pré-sélection et retourne les infos du joueur/inscription.
+     */
+    #[OA\Get(
+        path: '/player/preselection/verify',
+        summary: 'Vérifier un token de pré-sélection',
+        tags: ['Player Preselection'],
+        parameters: [new OA\Parameter(name: 'token', in: 'query', required: true, schema: new OA\Schema(type: 'string'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Informations de l\'inscription'),
+            new OA\Response(response: 404, description: 'Token invalide'),
+        ],
+    )]
+    public function verify(): JsonResponse
+    {
+        $token = request()->query('token');
+
+        if (empty($token)) {
+            return response()->json(['message' => 'Token manquant.'], 422);
+        }
+
+        $registration = Registration::query()
+            ->where('preselection_token', $token)
+            ->with(['player', 'session', 'preselectionResult'])
+            ->first();
+
+        if (! $registration) {
+            return response()->json(['message' => 'Token invalide ou expiré.'], 404);
+        }
+
+        $hasCompleted = $registration->preselectionResult !== null
+            || $registration->status === RegistrationStatus::PreselectionDone;
+
+        return response()->json([
+            'player' => [
+                'full_name' => $registration->player->full_name,
+                'pseudo' => $registration->player->pseudo,
+                'email' => $registration->player->email,
+            ],
+            'session' => [
+                'id' => $registration->session->id,
+                'name' => $registration->session->name,
+                'scheduled_at' => $registration->session->scheduled_at,
+            ],
+            'registration' => [
+                'id' => $registration->id,
+                'status' => $registration->status,
+            ],
+            'has_completed' => $hasCompleted,
+        ]);
+    }
+
+    /**
      * Récupère les questions de pré-sélection pour une session.
      */
     #[OA\Get(

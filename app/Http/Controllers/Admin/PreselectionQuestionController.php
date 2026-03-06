@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\MediaType;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\PreselectionQuestionResource;
+use App\Http\Resources\AdminPreselectionQuestionResource;
 use App\Models\PreselectionQuestion;
 use App\Models\PreselectionQuestionChoice;
 use App\Models\Session;
@@ -34,7 +34,7 @@ class PreselectionQuestionController extends Controller
             ->orderBy('display_order')
             ->get();
 
-        return PreselectionQuestionResource::collection($questions);
+        return AdminPreselectionQuestionResource::collection($questions);
     }
 
     #[OA\Post(
@@ -133,7 +133,7 @@ class PreselectionQuestionController extends Controller
         }
 
         return response()->json(
-            new PreselectionQuestionResource($question->load('choices')),
+            new AdminPreselectionQuestionResource($question->load('choices')),
             201
         );
     }
@@ -149,11 +149,11 @@ class PreselectionQuestionController extends Controller
         ],
         responses: [new OA\Response(response: 200, description: 'Détail question')],
     )]
-    public function show(Session $session, PreselectionQuestion $preselectionQuestion): PreselectionQuestionResource
+    public function show(Session $session, PreselectionQuestion $preselectionQuestion): AdminPreselectionQuestionResource
     {
         $preselectionQuestion->load('choices');
 
-        return new PreselectionQuestionResource($preselectionQuestion);
+        return new AdminPreselectionQuestionResource($preselectionQuestion);
     }
 
     #[OA\Put(
@@ -249,7 +249,7 @@ class PreselectionQuestionController extends Controller
         }
 
         return response()->json(
-            new PreselectionQuestionResource($preselectionQuestion->load('choices'))
+            new AdminPreselectionQuestionResource($preselectionQuestion->load('choices'))
         );
     }
 

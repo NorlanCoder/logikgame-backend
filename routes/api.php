@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GameController as AdminGameController;
+use App\Http\Controllers\Admin\PreselectionController as AdminPreselectionController;
 use App\Http\Controllers\Admin\PreselectionQuestionController;
 use App\Http\Controllers\Admin\QuestionController;
 use App\Http\Controllers\Admin\QuestionHintController;
@@ -68,6 +69,10 @@ Route::prefix('admin')->group(function () {
             Route::apiResource('preselection-questions', PreselectionQuestionController::class)
                 ->parameters(['preselection-questions' => 'preselectionQuestion']);
 
+            // Résultats de pré-sélection (consultation)
+            Route::get('/preselection/registrations', [AdminPreselectionController::class, 'registrations']);
+            Route::get('/preselection/registrations/{registration}', [AdminPreselectionController::class, 'registrationDetail']);
+
             // Moteur de jeu
             Route::prefix('game')->group(function () {
                 // Phase pré-jeu
@@ -119,7 +124,8 @@ Route::prefix('player')->group(function () {
     Route::post('/register', [RegistrationController::class, 'store']);
     Route::get('/registrations/{registration}', [RegistrationController::class, 'show']);
 
-    // Questions de pré-sélection (publique — identifiées par session)
+    // Pré-sélection (publique)
+    Route::get('/preselection/verify', [PreselectionController::class, 'verify']);
     Route::get('/sessions/{session}/preselection/questions', [PreselectionController::class, 'questions']);
     Route::post('/preselection/submit', [PreselectionController::class, 'submit']);
 
