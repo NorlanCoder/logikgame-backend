@@ -85,7 +85,6 @@ class SessionController extends Controller
             ...$data,
             'admin_id' => $request->user()->id,
             'status' => SessionStatus::Draft,
-            'projection_code' => strtoupper(substr(md5(uniqid()), 0, 8)),
         ]);
 
         $this->createDefaultRounds($session);
@@ -156,13 +155,26 @@ class SessionController extends Controller
     )]
     public function update(UpdateSessionRequest $request, Session $session): JsonResponse
     {
-        if (! in_array($session->status, [SessionStatus::Draft, SessionStatus::RegistrationOpen])) {
+        if (in_array($session->status, [SessionStatus::Ended, SessionStatus::Cancelled])) {
             return response()->json([
-                'message' => 'La session ne peut être modifiée que si elle est en brouillon ou en inscription ouverte.',
+                'message' => 'Une session terminée ou annulée ne peut plus être modifiée.',
             ], 422);
         }
 
-        $data = collect($request->validated())->except(['cover_image', 'remove_cover_image'])->toArray();
+        $alwaysEditableFields = ['name', 'description', 'scheduled_at', 'max_players'];
+        $validated = collect($request->validated())->except(['cover_image', 'remove_cover_image']);
+
+        if (! in_array($session->status, [SessionStatus::Draft, SessionStatus::RegistrationOpen])) {
+            $restrictedFields = $validated->keys()->diff($alwaysEditableFields);
+
+            if ($restrictedFields->isNotEmpty()) {
+                return response()->json([
+                    'message' => 'Seuls le nom, la description, la date et le nombre de joueurs peuvent être modifiés dans ce statut.',
+                ], 422);
+            }
+        }
+
+        $data = $validated->toArray();
 
         if ($request->hasFile('cover_image')) {
             if ($session->cover_image_url) {

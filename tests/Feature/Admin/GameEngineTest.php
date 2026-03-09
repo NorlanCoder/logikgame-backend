@@ -100,15 +100,22 @@ describe('Game Engine — Pre-game phase', function () {
             ->assertSuccessful();
         expect($this->session->fresh()->status)->toBe(SessionStatus::RegistrationClosed);
 
-        // Select players
+        // Select players (sans changement de statut)
         $h()->postJson(gameUrl($this->session, 'select-players'), [
             'registration_ids' => $registrations->pluck('id')->toArray(),
         ])->assertSuccessful();
 
         $this->session->refresh();
-        expect($this->session->status)->toBe(SessionStatus::Ready);
+        expect($this->session->status)->toBe(SessionStatus::RegistrationClosed);
         expect($this->session->players_remaining)->toBe(5);
         expect(SessionPlayer::where('session_id', $this->session->id)->count())->toBe(5);
+
+        // Confirm selection → passe à Ready
+        $h()->postJson(gameUrl($this->session, 'confirm-selection'))
+            ->assertSuccessful();
+
+        $this->session->refresh();
+        expect($this->session->status)->toBe(SessionStatus::Ready);
 
         // Start session
         $h()->postJson(gameUrl($this->session, 'start'))

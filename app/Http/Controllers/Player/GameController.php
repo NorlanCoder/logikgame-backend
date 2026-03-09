@@ -104,7 +104,14 @@ class GameController extends Controller
                 ->first();
         }
 
+        $player = $sessionPlayer->player;
+
         return response()->json([
+            'session_player_id' => $sessionPlayer->id,
+            'player' => [
+                'pseudo' => $player->pseudo,
+                'full_name' => $player->full_name,
+            ],
             'my_status' => [
                 'status' => $sessionPlayer->status,
                 'capital' => $sessionPlayer->capital,
@@ -114,6 +121,8 @@ class GameController extends Controller
                     ->exists(),
             ],
             'session' => [
+                'id' => $session->id,
+                'name' => $session->name,
                 'status' => $session->status,
                 'jackpot' => $session->jackpot,
                 'players_remaining' => $session->players_remaining,
@@ -123,6 +132,7 @@ class GameController extends Controller
                 'round_number' => $session->currentRound->round_number,
                 'name' => $session->currentRound->name,
                 'round_type' => $session->currentRound->round_type,
+                'rules_description' => $session->currentRound->rules_description,
             ] : null,
             'current_question' => $currentQuestion,
             'already_answered' => $existingAnswer !== null,
@@ -172,9 +182,34 @@ class GameController extends Controller
 
         $session = $sessionPlayer->session;
         $question = $session->currentQuestion;
+        $isSecondChance = $request->boolean('is_second_chance', false);
 
-        if (! $question || $question->status !== QuestionStatus::Launched) {
+        // Vérifier si le joueur a passé cette manche (manche 4)
+        $round = $session->currentRound;
+        if ($round) {
+            $hasSkipped = RoundSkip::query()
+                ->where('session_player_id', $sessionPlayer->id)
+                ->where('session_round_id', $round->id)
+                ->exists();
+
+            if ($hasSkipped) {
+                return response()->json(['message' => 'Vous avez passé cette manche.'], 422);
+            }
+        }
+
+        if (! $question) {
             return response()->json(['message' => 'Aucune question active.'], 422);
+        }
+
+        if ($isSecondChance) {
+            $scQuestion = $question->secondChanceQuestion;
+            if (! $scQuestion || $scQuestion->status !== QuestionStatus::Launched) {
+                return response()->json(['message' => 'Aucune question de seconde chance active.'], 422);
+            }
+        } else {
+            if ($question->status !== QuestionStatus::Launched) {
+                return response()->json(['message' => 'Aucune question active.'], 422);
+            }
         }
 
         if ($question->id !== $request->question_id) {
@@ -281,6 +316,24 @@ class GameController extends Controller
             'range_max' => $hint->range_max,
             'time_penalty_seconds' => $hint->time_penalty_seconds,
         ];
+
+        // Pour les indices texte, construire la réponse masquée
+        if ($hint->hint_type->value === 'reveal_letters' && $hint->revealed_letters && $question->correct_answer) {
+            $answer = mb_strtoupper($question->correct_answer);
+            $positions = array_map('intval', $hint->revealed_letters);
+            $masked = [];
+            for ($i = 0; $i < mb_strlen($answer); $i++) {
+                $char = mb_substr($answer, $i, 1);
+                if ($char === ' ') {
+                    $masked[] = ' ';
+                } elseif (in_array($i + 1, $positions, true)) {
+                    $masked[] = $char;
+                } else {
+                    $masked[] = '_';
+                }
+            }
+            $hintData['masked_answer'] = implode(' ', $masked);
+        }
 
         event(new HintApplied($sessionPlayer, $question->id, $hintData));
 

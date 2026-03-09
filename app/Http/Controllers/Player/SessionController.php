@@ -14,15 +14,16 @@ class SessionController extends Controller
     /**
      * Retourne les sessions publiquement accessibles :
      * - preselection → inscriptions + quiz actifs
+     * - ready / in_progress → sessions en cours ou sur le point de commencer
      */
     #[OA\Get(
         path: '/player/sessions',
-        summary: 'Lister les sessions ouvertes (inscription ou présélection)',
+        summary: 'Lister les sessions publiques (inscription, prêtes ou en cours)',
         tags: ['Player Sessions'],
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Liste des sessions ouvertes',
+                description: 'Liste des sessions publiques',
                 content: new OA\JsonContent(
                     type: 'array',
                     items: new OA\Items(type: 'object'),
@@ -35,6 +36,8 @@ class SessionController extends Controller
         $sessions = Session::query()
             ->whereIn('status', [
                 SessionStatus::Preselection,
+                SessionStatus::Ready,
+                SessionStatus::InProgress,
             ])
             ->orderBy('scheduled_at')
             ->get();

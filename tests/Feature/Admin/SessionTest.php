@@ -94,8 +94,40 @@ describe('PUT /api/admin/sessions/{session}', function () {
         expect($session->fresh()->name)->toBe('Updated Name');
     });
 
-    it('rejects update on in-progress session', function () {
+    it('allows updating metadata fields on in-progress session', function () {
         $session = Session::factory()->inProgress()->create([
+            'admin_id' => $this->admin->id,
+        ]);
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->token}")
+            ->putJson("/api/admin/sessions/{$session->id}", [
+                'name' => 'Updated In Progress',
+                'description' => 'Nouvelle description',
+                'max_players' => 200,
+            ]);
+
+        $response->assertSuccessful();
+        $session->refresh();
+        expect($session->name)->toBe('Updated In Progress')
+            ->and($session->description)->toBe('Nouvelle description')
+            ->and($session->max_players)->toBe(200);
+    });
+
+    it('rejects restricted fields on in-progress session', function () {
+        $session = Session::factory()->inProgress()->create([
+            'admin_id' => $this->admin->id,
+        ]);
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->token}")
+            ->putJson("/api/admin/sessions/{$session->id}", [
+                'reconnection_delay' => 30,
+            ]);
+
+        $response->assertStatus(422);
+    });
+
+    it('rejects update on ended session', function () {
+        $session = Session::factory()->ended()->create([
             'admin_id' => $this->admin->id,
         ]);
 

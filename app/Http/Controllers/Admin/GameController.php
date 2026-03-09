@@ -21,6 +21,7 @@ use App\Events\QuestionClosed;
 use App\Events\QuestionLaunched;
 use App\Events\RoundEnded;
 use App\Events\RoundStarted;
+use App\Events\SecondChanceLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
 use App\Models\FinaleChoice;
@@ -155,8 +156,8 @@ class GameController extends Controller
     )]
     public function selectPlayers(Request $request, Session $session): JsonResponse
     {
-        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed])) {
-            return $this->statusError('La pré-sélection doit être en cours ou les inscriptions clôturées.');
+        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed, SessionStatus::Ready])) {
+            return $this->statusError('La pré-sélection doit être en cours, les inscriptions clôturées, ou la session prête.');
         }
 
         $validated = $request->validate([
@@ -194,22 +195,54 @@ class GameController extends Controller
             }
 
             $session->update([
-                'status' => SessionStatus::Ready,
                 'players_remaining' => $registrations->count(),
             ]);
         });
 
-        // Notifier les joueurs sélectionnés
+        return response()->json([
+            'message' => count($validated['registration_ids']).' joueurs sélectionnés.',
+            'players_count' => count($validated['registration_ids']),
+        ]);
+    }
+
+    /**
+     * Confirme la sélection, passe en Ready et envoie les notifications.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/confirm-selection',
+        summary: 'Confirmer la sélection et notifier les joueurs',
+        description: 'Passe la session en statut Ready et envoie les emails aux joueurs sélectionnés et rejetés.',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Sélection confirmée, notifications envoyées'),
+            new OA\Response(response: 422, description: 'Statut invalide ou aucun joueur sélectionné'),
+        ],
+    )]
+    public function confirmSelection(Session $session): JsonResponse
+    {
+        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed, SessionStatus::Ready])) {
+            return $this->statusError('La session doit être en pré-sélection, inscriptions clôturées, ou prête.');
+        }
+
         $selectedPlayers = SessionPlayer::query()
             ->where('session_id', $session->id)
             ->with('player')
             ->get();
 
+        if ($selectedPlayers->isEmpty()) {
+            return $this->statusError('Aucun joueur sélectionné. Utilisez d\'abord select-players.');
+        }
+
+        $session->update([
+            'status' => SessionStatus::Ready,
+        ]);
+
         foreach ($selectedPlayers as $sessionPlayer) {
             $sessionPlayer->player->notify(new PlayerSelected($session, $sessionPlayer));
         }
 
-        // Notifier les joueurs rejetés
         $rejectedRegistrations = Registration::query()
             ->where('session_id', $session->id)
             ->where('status', RegistrationStatus::Rejected)
@@ -221,8 +254,8 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'message' => count($validated['registration_ids']).' joueurs sélectionnés.',
-            'players_count' => count($validated['registration_ids']),
+            'message' => 'Sélection confirmée. '.$selectedPlayers->count().' joueurs notifiés.',
+            'players_count' => $selectedPlayers->count(),
         ]);
     }
 
@@ -456,6 +489,14 @@ class GameController extends Controller
             PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->count(),
             PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->where('is_correct', true)->count(),
             count($eliminated),
+            $needsSecondChance
+                ? SessionPlayer::whereIn('id', $failedPlayerIds)
+                    ->with('player:id,pseudo')
+                    ->get()
+                    ->map(fn (SessionPlayer $sp) => $sp->player->pseudo ?? 'Joueur')
+                    ->values()
+                    ->toArray()
+                : [],
         ));
 
         if ($needsSecondChance) {
@@ -516,6 +557,16 @@ class GameController extends Controller
             'status' => QuestionStatus::Launched,
             'launched_at' => now(),
         ]);
+
+        // Trouver les joueurs ayant échoué la question principale
+        $failedPlayerIds = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_correct', false)
+            ->where('is_second_chance', false)
+            ->pluck('session_player_id')
+            ->toArray();
+
+        event(new SecondChanceLaunched($session, $scQuestion, $question->id, $failedPlayerIds));
 
         return response()->json([
             'message' => 'Question de seconde chance lancée.',
@@ -619,6 +670,21 @@ class GameController extends Controller
                 }
             }
         });
+
+        // Diffuser les événements temps réel
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'second_chance_failed',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
 
         return response()->json([
             'message' => 'Seconde chance clôturée.',

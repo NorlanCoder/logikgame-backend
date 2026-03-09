@@ -68,7 +68,7 @@ describe('Notification — RegistrationConfirmed', function () {
 // ─────────────────────────────────────────────
 
 describe('Notification — Player Selection', function () {
-    it('sends PlayerSelected to selected players', function () {
+    it('does not send notifications on select-players (only on confirm)', function () {
         Notification::fake();
 
         ['token' => $token, 'session' => $session] = createSessionSetup([
@@ -87,11 +87,40 @@ describe('Notification — Player Selection', function () {
             ])->assertSuccessful();
 
         foreach ($players as $player) {
+            Notification::assertNothingSentTo($player);
+        }
+    });
+
+    it('sends PlayerSelected on confirm-selection', function () {
+        Notification::fake();
+
+        ['token' => $token, 'session' => $session] = createSessionSetup([
+            'status' => SessionStatus::Preselection,
+        ]);
+
+        $players = Player::factory()->count(3)->create();
+        $registrations = $players->map(fn ($p) => Registration::factory()->create([
+            'session_id' => $session->id,
+            'player_id' => $p->id,
+        ]));
+
+        // Select players first
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson("/api/admin/sessions/{$session->id}/game/select-players", [
+                'registration_ids' => $registrations->pluck('id')->toArray(),
+            ])->assertSuccessful();
+
+        // Confirm selection → sends notifications
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson("/api/admin/sessions/{$session->id}/game/confirm-selection")
+            ->assertSuccessful();
+
+        foreach ($players as $player) {
             Notification::assertSentTo($player, PlayerSelected::class);
         }
     });
 
-    it('sends PlayerRejected to rejected players', function () {
+    it('sends PlayerRejected on confirm-selection', function () {
         Notification::fake();
 
         ['token' => $token, 'session' => $session] = createSessionSetup([
@@ -116,6 +145,11 @@ describe('Notification — Player Selection', function () {
             ->postJson("/api/admin/sessions/{$session->id}/game/select-players", [
                 'registration_ids' => [$selectedReg->id],
             ])->assertSuccessful();
+
+        // Confirm → sends notifications
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson("/api/admin/sessions/{$session->id}/game/confirm-selection")
+            ->assertSuccessful();
 
         Notification::assertSentTo($selectedPlayer, PlayerSelected::class);
         Notification::assertSentTo($rejectedPlayer, PlayerRejected::class);

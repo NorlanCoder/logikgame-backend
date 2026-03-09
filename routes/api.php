@@ -62,7 +62,8 @@ Route::prefix('admin')->group(function () {
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
 
-            // Projection — générer un code d'accès
+            // Projection — consulter et générer un code d'accès
+            Route::get('/projection', [ProjectionController::class, 'show']);
             Route::post('/projection/generate', [ProjectionController::class, 'generateCode']);
 
             // Questions de pré-sélection CRUD
@@ -80,6 +81,7 @@ Route::prefix('admin')->group(function () {
                 Route::post('/close-registration', [AdminGameController::class, 'closeRegistration']);
                 Route::post('/open-preselection', [AdminGameController::class, 'openPreselection']);
                 Route::post('/select-players', [AdminGameController::class, 'selectPlayers']);
+                Route::post('/confirm-selection', [AdminGameController::class, 'confirmSelection']);
                 Route::post('/start', [AdminGameController::class, 'startSession']);
 
                 // Cycle de question

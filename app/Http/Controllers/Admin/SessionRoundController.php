@@ -29,6 +29,7 @@ class SessionRoundController extends Controller
     public function index(Session $session): AnonymousResourceCollection
     {
         $rounds = $session->rounds()
+            ->with(['questions' => fn ($q) => $q->with(['choices', 'hint', 'secondChanceQuestion.choices'])])
             ->withCount('questions')
             ->get();
 

@@ -29,6 +29,11 @@ class UpdateQuestionRequest extends FormRequest
             'media_type' => ['nullable', Rule::enum(MediaType::class)],
             'number_is_decimal' => ['nullable', 'boolean'],
             'remove_media' => ['nullable', 'boolean'],
+            // Choix QCM
+            'choices' => ['nullable', 'array', 'min:2', 'max:6'],
+            'choices.*.label' => ['required_with:choices', 'string', 'max:500'],
+            'choices.*.is_correct' => ['required_with:choices', 'boolean'],
+            'choices.*.display_order' => ['nullable', 'integer'],
         ];
     }
 }

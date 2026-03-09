@@ -243,7 +243,7 @@ class QuestionController extends Controller
             ], 422);
         }
 
-        $data = collect($request->validated())->except(['media_file', 'remove_media'])->toArray();
+        $data = collect($request->validated())->except(['media_file', 'remove_media', 'choices'])->toArray();
 
         if ($request->hasFile('media_file')) {
             if ($question->media_url) {
@@ -258,6 +258,24 @@ class QuestionController extends Controller
             }
             $data['media_url'] = null;
             $data['media_type'] = MediaType::None;
+        }
+
+        // Recréer les choix QCM et recalculer correct_answer
+        $answerType = $data['answer_type'] ?? $question->answer_type->value;
+
+        if ($request->has('choices') && $answerType === 'qcm') {
+            $question->choices()->delete();
+
+            foreach ($request->choices as $index => $choiceData) {
+                QuestionChoice::create([
+                    'question_id' => $question->id,
+                    'label' => $choiceData['label'],
+                    'is_correct' => $choiceData['is_correct'] ?? false,
+                    'display_order' => $choiceData['display_order'] ?? ($index + 1),
+                ]);
+            }
+
+            $data['correct_answer'] = collect($request->choices)->firstWhere('is_correct', true)['label'] ?? null;
         }
 
         $question->update($data);

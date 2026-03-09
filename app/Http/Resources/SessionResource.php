@@ -27,7 +27,10 @@ class SessionResource extends JsonResource
             'jackpot' => $this->jackpot,
             'players_remaining' => $this->players_remaining,
             'reconnection_delay' => $this->reconnection_delay,
-            'projection_code' => $this->projection_code,
+            'projection_code' => $this->projectionAccesses()
+                ->where('is_active', true)
+                ->latest()
+                ->value('access_code'),
             'started_at' => $this->started_at?->toIso8601String(),
             'ended_at' => $this->ended_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
