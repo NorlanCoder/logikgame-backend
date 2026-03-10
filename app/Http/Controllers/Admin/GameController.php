@@ -25,6 +25,7 @@ use App\Events\RoundStarted;
 use App\Events\SecondChanceClosed;
 use App\Events\SecondChanceLaunched;
 use App\Events\SecondChanceRevealed;
+use App\Events\Top4Finalized;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
 use App\Models\FinaleChoice;
@@ -880,14 +881,18 @@ class GameController extends Controller
                 $rank = $index + 1;
                 $isQualified = $rank <= 4;
 
-                RoundRanking::create([
-                    'session_round_id' => $round->id,
-                    'session_player_id' => $ranking['session_player_id'],
-                    'correct_answers_count' => $ranking['correct_count'],
-                    'total_response_time_ms' => $ranking['total_time'],
-                    'rank' => $rank,
-                    'is_qualified' => $isQualified,
-                ]);
+                RoundRanking::updateOrCreate(
+                    [
+                        'session_round_id' => $round->id,
+                        'session_player_id' => $ranking['session_player_id'],
+                    ],
+                    [
+                        'correct_answers_count' => $ranking['correct_count'],
+                        'total_response_time_ms' => $ranking['total_time'],
+                        'rank' => $rank,
+                        'is_qualified' => $isQualified,
+                    ],
+                );
 
                 if (! $isQualified) {
                     $sessionPlayer = SessionPlayer::find($ranking['session_player_id']);
@@ -903,14 +908,44 @@ class GameController extends Controller
             }
         });
 
+        // Construire les données de classement avec pseudo
+        $rankingsData = RoundRanking::query()
+            ->where('session_round_id', $round->id)
+            ->orderBy('rank')
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (RoundRanking $r) => [
+                'session_player_id' => $r->session_player_id,
+                'pseudo' => $r->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'correct_answers_count' => $r->correct_answers_count,
+                'total_response_time_ms' => $r->total_response_time_ms,
+                'rank' => $r->rank,
+                'is_qualified' => (bool) $r->is_qualified,
+            ])
+            ->toArray();
+
+        // Diffuser les événements temps réel
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'top4_cutoff',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        event(new Top4Finalized($session, $rankingsData));
+
         return response()->json([
             'message' => 'Top 4 sélectionné.',
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
-            'rankings' => RoundRanking::query()
-                ->where('session_round_id', $round->id)
-                ->orderBy('rank')
-                ->get(['session_player_id', 'correct_answers_count', 'total_response_time_ms', 'rank', 'is_qualified']),
+            'rankings' => $rankingsData,
         ]);
     }
 
