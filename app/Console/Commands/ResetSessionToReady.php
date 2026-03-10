@@ -14,6 +14,7 @@ use App\Models\Question;
 use App\Models\Round6PlayerJackpot;
 use App\Models\Round6TurnOrder;
 use App\Models\RoundRanking;
+use App\Models\RoundSkip;
 use App\Models\SecondChanceQuestion;
 use App\Models\Session;
 use Illuminate\Console\Command;
@@ -59,6 +60,7 @@ class ResetSessionToReady extends Command
         PlayerAnswer::whereIn('session_player_id', $playerIds)->delete();
         HintUsage::whereIn('session_player_id', $playerIds)->delete();
         Elimination::whereIn('session_player_id', $playerIds)->delete();
+        RoundSkip::whereIn('session_player_id', $playerIds)->delete();
         RoundRanking::whereIn('session_round_id', $roundIds)->delete();
         Round6TurnOrder::whereIn('session_round_id', $roundIds)->delete();
         Round6PlayerJackpot::whereIn('session_round_id', $roundIds)->delete();

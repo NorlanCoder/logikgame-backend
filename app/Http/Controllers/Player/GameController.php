@@ -19,6 +19,7 @@ use App\Models\Session;
 use App\Models\SessionPlayer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use OpenApi\Attributes as OA;
 
@@ -470,6 +471,38 @@ class GameController extends Controller
             'message' => 'Choix enregistré.',
             'both_ready' => $totalChoices >= 2,
         ]);
+    }
+
+    /**
+     * Authentifie un joueur pour les canaux privés WebSocket (Reverb/Pusher).
+     */
+    public function broadcastingAuth(Request $request): \Illuminate\Http\Response|JsonResponse
+    {
+        $sessionPlayer = $this->resolveSessionPlayer($request);
+
+        if (! $sessionPlayer) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $channelName = $request->input('channel_name', '');
+
+        // Autoriser uniquement le canal privé du joueur
+        $expectedChannel = 'private-player.' . $sessionPlayer->id;
+
+        if ($channelName !== $expectedChannel) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        // Générer la signature Pusher pour Reverb
+        $pusher = new \Pusher\Pusher(
+            config('broadcasting.connections.reverb.key'),
+            config('broadcasting.connections.reverb.secret'),
+            config('broadcasting.connections.reverb.app_id'),
+        );
+
+        $auth = $pusher->authorizeChannel($channelName, $request->input('socket_id'));
+
+        return response($auth, 200, ['Content-Type' => 'application/json']);
     }
 
     /**     * Récupère le SessionPlayer via le header X-Player-Token.

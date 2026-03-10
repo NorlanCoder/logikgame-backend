@@ -20,6 +20,7 @@ class QuestionClosed implements ShouldBroadcastNow
         public int $correctCount,
         public int $eliminatedCount,
         public array $inDangerPlayers = [],
+        public array $playerResults = [],
     ) {}
 
     /**
@@ -49,6 +50,7 @@ class QuestionClosed implements ShouldBroadcastNow
             'eliminated_count' => $this->eliminatedCount,
             'in_danger_count' => count($this->inDangerPlayers),
             'in_danger_players' => $this->inDangerPlayers,
+            'player_results' => $this->playerResults,
         ];
     }
 }

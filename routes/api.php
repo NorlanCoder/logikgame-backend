@@ -140,6 +140,7 @@ Route::prefix('player')->group(function () {
         Route::post('/hint', [PlayerGameController::class, 'useHint']);
         Route::post('/pass-manche', [PlayerGameController::class, 'passManche']);
         Route::post('/finale-choice', [PlayerGameController::class, 'submitFinaleChoice']);
+        Route::post('/broadcasting/auth', [PlayerGameController::class, 'broadcastingAuth']);
     });
 });
 

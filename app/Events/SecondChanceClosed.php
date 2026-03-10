@@ -16,6 +16,7 @@ class SecondChanceClosed implements ShouldBroadcastNow
     public function __construct(
         public Session $session,
         public int $mainQuestionId,
+        public array $playerResults = [],
     ) {}
 
     /**
@@ -40,6 +41,7 @@ class SecondChanceClosed implements ShouldBroadcastNow
     {
         return [
             'main_question_id' => $this->mainQuestionId,
+            'player_results' => $this->playerResults,
         ];
     }
 }

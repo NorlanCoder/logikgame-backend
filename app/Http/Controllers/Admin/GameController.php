@@ -504,6 +504,20 @@ class GameController extends Controller
             event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
         }
 
+        // Construire les résultats par joueur pour la projection
+        $playerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', false)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
+
         event(new QuestionClosed(
             $session,
             $question->id,
@@ -518,6 +532,7 @@ class GameController extends Controller
                     ->values()
                     ->toArray()
                 : [],
+            $playerResults,
         ));
 
         if ($needsSecondChance) {
@@ -715,8 +730,22 @@ class GameController extends Controller
             event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
         }
 
+        // Construire les résultats SC par joueur pour la projection
+        $scPlayerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', true)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
+
         // Diffuser la clôture de la seconde chance (pour la projection)
-        event(new SecondChanceClosed($session, $question->id));
+        event(new SecondChanceClosed($session, $question->id, $scPlayerResults));
 
         return response()->json([
             'message' => 'Seconde chance clôturée.',
