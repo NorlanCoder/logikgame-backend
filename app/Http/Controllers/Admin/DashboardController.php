@@ -47,7 +47,15 @@ class DashboardController extends Controller
         $activePlayers = SessionPlayer::query()
             ->where('session_id', $session->id)
             ->where('status', SessionPlayerStatus::Active)
-            ->count();
+            ->with('player:id,pseudo')
+            ->get();
+
+        $activePlayersCount = $activePlayers->count();
+
+        $activePlayersList = $activePlayers->map(fn ($sp) => [
+            'id' => $sp->id,
+            'pseudo' => $sp->player->pseudo ?? 'Inconnu',
+        ])->values()->toArray();
 
         $eliminatedPlayers = SessionPlayer::query()
             ->where('session_id', $session->id)
@@ -94,7 +102,8 @@ class DashboardController extends Controller
                 ? new QuestionResource($session->currentQuestion)
                 : null,
             'stats' => [
-                'active_players' => $activePlayers,
+                'active_players' => $activePlayersCount,
+                'active_players_list' => $activePlayersList,
                 'eliminated_players' => $eliminatedPlayers,
                 'current_question' => $currentQuestionStats,
             ],

@@ -44,6 +44,7 @@ class AnswerResult implements ShouldBroadcastNow
             'question_id' => $this->questionId,
             'is_correct' => $this->isCorrect,
             'correct_answer' => $this->correctAnswer,
+            'personal_jackpot' => $this->sessionPlayer->personal_jackpot,
         ];
     }
 }
