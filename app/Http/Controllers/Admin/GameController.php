@@ -13,6 +13,7 @@ use App\Enums\RoundStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
 use App\Enums\SessionStatus;
+use App\Events\AnswerResult;
 use App\Events\AnswerRevealed;
 use App\Events\GameEnded;
 use App\Events\JackpotUpdated;
@@ -21,7 +22,9 @@ use App\Events\QuestionClosed;
 use App\Events\QuestionLaunched;
 use App\Events\RoundEnded;
 use App\Events\RoundStarted;
+use App\Events\SecondChanceClosed;
 use App\Events\SecondChanceLaunched;
+use App\Events\SecondChanceRevealed;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
 use App\Models\FinaleChoice;
@@ -453,6 +456,24 @@ class GameController extends Controller
                 }
             }
 
+            // Envoyer le résultat individuel à chaque joueur
+            foreach ($activePlayers as $player) {
+                $answer = PlayerAnswer::query()
+                    ->where('session_player_id', $player->id)
+                    ->where('question_id', $question->id)
+                    ->where('is_second_chance', false)
+                    ->first();
+
+                if ($answer) {
+                    event(new AnswerResult(
+                        $player,
+                        $question->id,
+                        (bool) $answer->is_correct,
+                        $question->correct_answer,
+                    ));
+                }
+            }
+
             // Résolution selon le type de manche
             $eliminated = match ($round->round_type) {
                 RoundType::SecondChance => $this->handleSecondChanceEvaluation($session, $question, $round, $needsSecondChance, $failedPlayerIds),
@@ -479,7 +500,7 @@ class GameController extends Controller
                     'reason' => $sp->elimination_reason?->value ?? 'wrong_answer',
                 ])->toArray();
 
-            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot));
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
             event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
         }
 
@@ -658,6 +679,14 @@ class GameController extends Controller
                     $scAnswer->update(['is_correct' => $isCorrect]);
                 }
 
+                // Envoyer le résultat SC individuel au joueur
+                event(new AnswerResult(
+                    $sessionPlayer,
+                    $question->id,
+                    (bool) $scAnswer->is_correct,
+                    $scQuestion->correct_answer,
+                ));
+
                 // Si échec à la seconde chance → élimination
                 if (! $scAnswer->is_correct) {
                     $eliminated[] = $this->eliminatePlayer(
@@ -682,14 +711,68 @@ class GameController extends Controller
                     'reason' => $sp->elimination_reason?->value ?? 'second_chance_failed',
                 ])->toArray();
 
-            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot));
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
             event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
         }
+
+        // Diffuser la clôture de la seconde chance (pour la projection)
+        event(new SecondChanceClosed($session, $question->id));
 
         return response()->json([
             'message' => 'Seconde chance clôturée.',
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
+        ]);
+    }
+
+    /**
+     * Révèle la bonne réponse de la question de seconde chance.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/reveal-second-chance',
+        summary: 'Révéler la réponse de la seconde chance',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Réponse SC révélée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
+    public function revealSecondChance(Session $session): JsonResponse
+    {
+        $question = $session->currentQuestion;
+
+        if (! $question) {
+            return $this->statusError('Aucune question principale courante.');
+        }
+
+        $scQuestion = $question->secondChanceQuestion;
+
+        if (! $scQuestion || $scQuestion->status !== QuestionStatus::Closed) {
+            return $this->statusError('Aucune question de seconde chance clôturée à révéler.');
+        }
+
+        $scQuestion->update([
+            'status' => QuestionStatus::Revealed,
+        ]);
+
+        $choicesData = $scQuestion->choices->map(fn ($c) => [
+            'id' => $c->id,
+            'label' => $c->label,
+            'is_correct' => $c->is_correct,
+        ])->toArray();
+
+        event(new SecondChanceRevealed(
+            $session,
+            $question->id,
+            $scQuestion->correct_answer,
+            $choicesData,
+        ));
+
+        return response()->json([
+            'message' => 'Réponse de seconde chance révélée.',
+            'correct_answer' => $scQuestion->correct_answer,
         ]);
     }
 
@@ -1253,10 +1336,20 @@ class GameController extends Controller
             }
         }
 
-        return SessionPlayer::query()
+        $query = SessionPlayer::query()
             ->where('session_id', $session->id)
-            ->where('status', SessionPlayerStatus::Active)
-            ->get();
+            ->where('status', SessionPlayerStatus::Active);
+
+        // En manche 4 (RoundSkip), exclure les joueurs ayant passé la manche
+        if ($round->round_type === RoundType::RoundSkip) {
+            $skippedIds = \App\Models\RoundSkip::query()
+                ->where('session_round_id', $round->id)
+                ->pluck('session_player_id');
+
+            $query->whereNotIn('id', $skippedIds);
+        }
+
+        return $query->get();
     }
 
     /**

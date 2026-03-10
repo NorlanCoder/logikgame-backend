@@ -14,6 +14,7 @@ use App\Models\Question;
 use App\Models\Round6PlayerJackpot;
 use App\Models\Round6TurnOrder;
 use App\Models\RoundRanking;
+use App\Models\SecondChanceQuestion;
 use App\Models\Session;
 use Illuminate\Console\Command;
 
@@ -66,11 +67,20 @@ class ResetSessionToReady extends Command
         JackpotTransaction::where('session_id', $session->id)->delete();
 
         // Reset questions
+        $questionIds = Question::whereIn('session_round_id', $roundIds)->pluck('id');
+
         Question::whereIn('session_round_id', $roundIds)->update([
             'status' => 'pending',
             'launched_at' => null,
             'closed_at' => null,
             'revealed_at' => null,
+        ]);
+
+        // Reset second chance questions
+        SecondChanceQuestion::whereIn('main_question_id', $questionIds)->update([
+            'status' => 'pending',
+            'launched_at' => null,
+            'closed_at' => null,
         ]);
 
         // Reset rounds

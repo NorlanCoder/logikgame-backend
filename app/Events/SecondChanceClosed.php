@@ -9,18 +9,13 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PlayerEliminated implements ShouldBroadcastNow
+class SecondChanceClosed implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
         public Session $session,
-        /** @var array<int, array{pseudo: string, reason: string}> */
-        public array $eliminatedPlayers,
-        public int $playersRemaining,
-        public int $jackpot,
-        /** @var int[] IDs des session_players éliminés */
-        public array $eliminatedPlayerIds = [],
+        public int $mainQuestionId,
     ) {}
 
     /**
@@ -35,7 +30,7 @@ class PlayerEliminated implements ShouldBroadcastNow
 
     public function broadcastAs(): string
     {
-        return 'player.eliminated';
+        return 'second_chance.closed';
     }
 
     /**
@@ -44,10 +39,7 @@ class PlayerEliminated implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
-            'eliminated' => $this->eliminatedPlayers,
-            'eliminated_player_ids' => $this->eliminatedPlayerIds,
-            'players_remaining' => $this->playersRemaining,
-            'jackpot' => $this->jackpot,
+            'main_question_id' => $this->mainQuestionId,
         ];
     }
 }

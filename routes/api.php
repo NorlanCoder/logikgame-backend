@@ -92,6 +92,7 @@ Route::prefix('admin')->group(function () {
                 // Manche 3 — Seconde Chance
                 Route::post('/launch-second-chance', [AdminGameController::class, 'launchSecondChance']);
                 Route::post('/close-second-chance', [AdminGameController::class, 'closeSecondChance']);
+                Route::post('/reveal-second-chance', [AdminGameController::class, 'revealSecondChance']);
 
                 // Manche 5 — Top 4
                 Route::post('/finalize-top4', [AdminGameController::class, 'finalizeTop4']);
