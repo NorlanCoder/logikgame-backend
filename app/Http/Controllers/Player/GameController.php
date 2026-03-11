@@ -177,7 +177,7 @@ class GameController extends Controller
             return response()->json(['message' => 'Token invalide.'], 401);
         }
 
-        if ($sessionPlayer->status !== SessionPlayerStatus::Active) {
+        if (! in_array($sessionPlayer->status, [SessionPlayerStatus::Active, SessionPlayerStatus::Finalist])) {
             return response()->json(['message' => 'Vous n\'participez plus à cette session.'], 422);
         }
 

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GameController as AdminGameController;
+use App\Http\Controllers\Admin\RecapController;
 use App\Http\Controllers\Admin\PreselectionController as AdminPreselectionController;
 use App\Http\Controllers\Admin\PreselectionQuestionController;
 use App\Http\Controllers\Admin\QuestionController;
@@ -63,6 +64,9 @@ Route::prefix('admin')->group(function () {
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
 
+            // Récapitulatif complet de la session
+            Route::get('/recap', [RecapController::class, 'show']);
+
             // Projection — consulter et générer un code d'accès
             Route::get('/projection', [ProjectionController::class, 'show']);
             Route::post('/projection/generate', [ProjectionController::class, 'generateCode']);
@@ -89,11 +93,13 @@ Route::prefix('admin')->group(function () {
                 Route::post('/launch-question', [AdminGameController::class, 'launchQuestion']);
                 Route::post('/close-question', [AdminGameController::class, 'closeQuestion']);
                 Route::post('/reveal-answer', [AdminGameController::class, 'revealAnswer']);
+                Route::post('/show-results', [AdminGameController::class, 'showResults']);
 
                 // Manche 3 — Seconde Chance
                 Route::post('/launch-second-chance', [AdminGameController::class, 'launchSecondChance']);
                 Route::post('/close-second-chance', [AdminGameController::class, 'closeSecondChance']);
                 Route::post('/reveal-second-chance', [AdminGameController::class, 'revealSecondChance']);
+                Route::post('/show-sc-results', [AdminGameController::class, 'showScResults']);
 
                 // Manche 5 — Top 4
                 Route::post('/finalize-top4', [AdminGameController::class, 'finalizeTop4']);
