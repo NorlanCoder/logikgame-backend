@@ -93,11 +93,13 @@ Route::prefix('admin')->group(function () {
                 Route::post('/launch-question', [AdminGameController::class, 'launchQuestion']);
                 Route::post('/close-question', [AdminGameController::class, 'closeQuestion']);
                 Route::post('/reveal-answer', [AdminGameController::class, 'revealAnswer']);
+                Route::post('/show-results', [AdminGameController::class, 'showResults']);
 
                 // Manche 3 — Seconde Chance
                 Route::post('/launch-second-chance', [AdminGameController::class, 'launchSecondChance']);
                 Route::post('/close-second-chance', [AdminGameController::class, 'closeSecondChance']);
                 Route::post('/reveal-second-chance', [AdminGameController::class, 'revealSecondChance']);
+                Route::post('/show-sc-results', [AdminGameController::class, 'showScResults']);
 
                 // Manche 5 — Top 4
                 Route::post('/finalize-top4', [AdminGameController::class, 'finalizeTop4']);

@@ -24,7 +24,9 @@ use App\Events\PlayerEliminated;
 use App\Events\QuestionClosed;
 use App\Events\QuestionLaunched;
 use App\Events\RoundEnded;
+use App\Events\ResultsRevealed;
 use App\Events\RoundStarted;
+use App\Events\ScResultsRevealed;
 use App\Events\SecondChanceClosed;
 use App\Events\SecondChanceLaunched;
 use App\Events\SecondChanceRevealed;
@@ -723,6 +725,47 @@ class GameController extends Controller
             'is_correct' => $c->is_correct,
         ])->toArray();
 
+        event(new SecondChanceRevealed(
+            $session,
+            $question->id,
+            $scQuestion->correct_answer,
+            $choicesData,
+        ));
+
+        return response()->json([
+            'message' => 'Réponse de seconde chance révélée.',
+            'correct_answer' => $scQuestion->correct_answer,
+        ]);
+    }
+
+    /**
+     * Affiche les résultats de la seconde chance.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/show-sc-results',
+        summary: 'Afficher les résultats de la seconde chance',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Résultats SC affichés'),
+            new OA\Response(response: 422, description: 'Aucune SC révélée'),
+        ],
+    )]
+    public function showScResults(Session $session): JsonResponse
+    {
+        $question = $session->currentQuestion;
+
+        if (! $question) {
+            return $this->statusError('Aucune question principale courante.');
+        }
+
+        $scQuestion = $question->secondChanceQuestion;
+
+        if (! $scQuestion || $scQuestion->status !== QuestionStatus::Revealed) {
+            return $this->statusError('Aucune question de seconde chance révélée.');
+        }
+
         // Envoyer le résultat SC individuel à chaque joueur concerné
         $failedPlayerIds = PlayerAnswer::query()
             ->where('question_id', $question->id)
@@ -752,7 +795,7 @@ class GameController extends Controller
             }
         }
 
-        // Diffuser les éliminations SC (créées lors du close, envoyées maintenant)
+        // Diffuser les éliminations SC
         $eliminated = Elimination::query()
             ->where('question_id', $question->id)
             ->where('reason', EliminationReason::SecondChanceFailed)
@@ -787,17 +830,10 @@ class GameController extends Controller
             ->values()
             ->toArray();
 
-        event(new SecondChanceRevealed(
-            $session,
-            $question->id,
-            $scQuestion->correct_answer,
-            $choicesData,
-            $scPlayerResults,
-        ));
+        event(new ScResultsRevealed($session, $question->id, $scPlayerResults));
 
         return response()->json([
-            'message' => 'Réponse de seconde chance révélée.',
-            'correct_answer' => $scQuestion->correct_answer,
+            'message' => 'Résultats seconde chance affichés.',
         ]);
     }
 
@@ -1426,8 +1462,6 @@ class GameController extends Controller
             return $this->statusError('Aucune question clôturée à révéler.');
         }
 
-        $round = $session->currentRound;
-
         $question->update([
             'status' => QuestionStatus::Revealed,
             'revealed_at' => now(),
@@ -1438,6 +1472,38 @@ class GameController extends Controller
             'label' => $c->label,
             'is_correct' => $c->is_correct,
         ])->toArray();
+
+        event(new AnswerRevealed($session, $question->id, $question->correct_answer, $choicesData));
+
+        return response()->json([
+            'message' => 'Réponse révélée.',
+            'correct_answer' => $question->correct_answer,
+        ]);
+    }
+
+    /**
+     * Affiche les résultats (AnswerResult privé, éliminations, cagnotte).
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/show-results',
+        summary: 'Afficher les résultats de la question courante',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Résultats affichés'),
+            new OA\Response(response: 422, description: 'Aucune question révélée'),
+        ],
+    )]
+    public function showResults(Session $session): JsonResponse
+    {
+        $question = $session->currentQuestion;
+
+        if (! $question || $question->status !== QuestionStatus::Revealed) {
+            return $this->statusError('Aucune question révélée pour afficher les résultats.');
+        }
+
+        $round = $session->currentRound;
 
         // Envoyer le résultat individuel à chaque joueur (AnswerResult privé)
         $activePlayers = $this->getRespondingPlayers($session, $question, $round);
@@ -1458,7 +1524,7 @@ class GameController extends Controller
             }
         }
 
-        // Diffuser les éliminations (créées lors du close, envoyées maintenant)
+        // Diffuser les éliminations (créées lors du close)
         $eliminated = Elimination::query()
             ->where('question_id', $question->id)
             ->pluck('session_player_id')
@@ -1492,11 +1558,10 @@ class GameController extends Controller
             ->values()
             ->toArray();
 
-        event(new AnswerRevealed($session, $question->id, $question->correct_answer, $choicesData, $playerResults));
+        event(new ResultsRevealed($session, $question->id, $playerResults));
 
         return response()->json([
-            'message' => 'Réponse révélée.',
-            'correct_answer' => $question->correct_answer,
+            'message' => 'Résultats affichés.',
         ]);
     }
 
