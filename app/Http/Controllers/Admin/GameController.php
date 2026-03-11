@@ -1607,6 +1607,20 @@ class GameController extends Controller
             }
         }
 
+        // En finale, seuls les finalistes ayant choisi "continuer" répondent
+        if ($round->round_type === RoundType::Finale) {
+            $continuerIds = FinaleChoice::query()
+                ->where('session_id', $session->id)
+                ->where('choice', FinaleChoiceType::Continue)
+                ->pluck('session_player_id');
+
+            return SessionPlayer::query()
+                ->where('session_id', $session->id)
+                ->where('status', SessionPlayerStatus::Finalist)
+                ->whereIn('id', $continuerIds)
+                ->get();
+        }
+
         $query = SessionPlayer::query()
             ->where('session_id', $session->id)
             ->where('status', SessionPlayerStatus::Active);
@@ -1890,14 +1904,18 @@ class GameController extends Controller
         foreach ($choices as $index => $choice) {
             $gain = 5000;
 
-            FinalResult::create([
-                'session_id' => $session->id,
-                'session_player_id' => $choice->session_player_id,
-                'finale_scenario' => FinaleScenario::BothAbandon,
-                'final_gain' => $gain,
-                'is_winner' => false,
-                'position' => $index + 1,
-            ]);
+            FinalResult::updateOrCreate(
+                [
+                    'session_id' => $session->id,
+                    'session_player_id' => $choice->session_player_id,
+                ],
+                [
+                    'finale_scenario' => FinaleScenario::BothAbandon,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => $index + 1,
+                ]
+            );
 
             $this->logJackpotTransaction(
                 $session,
@@ -1954,14 +1972,18 @@ class GameController extends Controller
             // Tous ont bon → partage équitable
             $share = (int) floor($session->jackpot / $total);
             foreach ($playerResults as $index => $pr) {
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
-                    'final_gain' => $share,
-                    'is_winner' => true,
-                    'position' => $index + 1,
-                ]);
+                FinalResult::updateOrCreate(
+                    [
+                        'session_id' => $session->id,
+                        'session_player_id' => $pr['session_player_id'],
+                    ],
+                    [
+                        'finale_scenario' => FinaleScenario::BothContinueBothWin,
+                        'final_gain' => $share,
+                        'is_winner' => true,
+                        'position' => $index + 1,
+                    ]
+                );
                 $this->logJackpotTransaction(
                     $session, SessionPlayer::find($pr['session_player_id']), $round,
                     JackpotTransactionType::FinaleShare, -$share,
@@ -1980,14 +2002,18 @@ class GameController extends Controller
             $share = (int) floor($session->jackpot / $correctCount);
             foreach ($playerResults as $index => $pr) {
                 $gain = $pr['is_correct'] ? $share : 0;
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
-                    'final_gain' => $gain,
-                    'is_winner' => $pr['is_correct'],
-                    'position' => $pr['is_correct'] ? $index + 1 : $total,
-                ]);
+                FinalResult::updateOrCreate(
+                    [
+                        'session_id' => $session->id,
+                        'session_player_id' => $pr['session_player_id'],
+                    ],
+                    [
+                        'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                        'final_gain' => $gain,
+                        'is_winner' => $pr['is_correct'],
+                        'position' => $pr['is_correct'] ? $index + 1 : $total,
+                    ]
+                );
                 if ($gain > 0) {
                     $this->logJackpotTransaction(
                         $session, SessionPlayer::find($pr['session_player_id']), $round,
@@ -2007,14 +2033,18 @@ class GameController extends Controller
             // Aucun n'a bon → 2000 chacun
             foreach ($playerResults as $index => $pr) {
                 $gain = 2000;
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
-                    'final_gain' => $gain,
-                    'is_winner' => false,
-                    'position' => $index + 1,
-                ]);
+                FinalResult::updateOrCreate(
+                    [
+                        'session_id' => $session->id,
+                        'session_player_id' => $pr['session_player_id'],
+                    ],
+                    [
+                        'finale_scenario' => FinaleScenario::BothContinueBothFail,
+                        'final_gain' => $gain,
+                        'is_winner' => false,
+                        'position' => $index + 1,
+                    ]
+                );
                 $results[] = [
                     'session_player_id' => $pr['session_player_id'],
                     'finale_scenario' => FinaleScenario::BothContinueBothFail,
@@ -2040,14 +2070,18 @@ class GameController extends Controller
         // Abandonneurs : 2000 chacun
         foreach ($abandoners as $index => $choice) {
             $gain = 2000;
-            FinalResult::create([
-                'session_id' => $session->id,
-                'session_player_id' => $choice->session_player_id,
-                'finale_scenario' => FinaleScenario::OneAbandons,
-                'final_gain' => $gain,
-                'is_winner' => false,
-                'position' => 0,
-            ]);
+            FinalResult::updateOrCreate(
+                [
+                    'session_id' => $session->id,
+                    'session_player_id' => $choice->session_player_id,
+                ],
+                [
+                    'finale_scenario' => FinaleScenario::OneAbandons,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => 0,
+                ]
+            );
             $this->logJackpotTransaction(
                 $session, SessionPlayer::find($choice->session_player_id), $round,
                 JackpotTransactionType::FinaleAbandonShare, -$gain,
@@ -2086,14 +2120,18 @@ class GameController extends Controller
             $share = (int) floor($session->jackpot / $correctCount);
             foreach ($playerResults as $index => $pr) {
                 $gain = $pr['is_correct'] ? $share : 0;
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::OneAbandons,
-                    'final_gain' => $gain,
-                    'is_winner' => $pr['is_correct'],
-                    'position' => $pr['is_correct'] ? 1 : 0,
-                ]);
+                FinalResult::updateOrCreate(
+                    [
+                        'session_id' => $session->id,
+                        'session_player_id' => $pr['session_player_id'],
+                    ],
+                    [
+                        'finale_scenario' => FinaleScenario::OneAbandons,
+                        'final_gain' => $gain,
+                        'is_winner' => $pr['is_correct'],
+                        'position' => $pr['is_correct'] ? 1 : 0,
+                    ]
+                );
                 if ($gain > 0) {
                     $this->logJackpotTransaction(
                         $session, SessionPlayer::find($pr['session_player_id']), $round,
@@ -2112,14 +2150,18 @@ class GameController extends Controller
         } else {
             // Personne n'a bon → 0 chacun pour les continueurs
             foreach ($playerResults as $pr) {
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::OneAbandons,
-                    'final_gain' => 0,
-                    'is_winner' => false,
-                    'position' => 0,
-                ]);
+                FinalResult::updateOrCreate(
+                    [
+                        'session_id' => $session->id,
+                        'session_player_id' => $pr['session_player_id'],
+                    ],
+                    [
+                        'finale_scenario' => FinaleScenario::OneAbandons,
+                        'final_gain' => 0,
+                        'is_winner' => false,
+                        'position' => 0,
+                    ]
+                );
                 $results[] = [
                     'session_player_id' => $pr['session_player_id'],
                     'finale_scenario' => FinaleScenario::OneAbandons,
