@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GameController as AdminGameController;
+use App\Http\Controllers\Admin\RecapController;
 use App\Http\Controllers\Admin\PreselectionController as AdminPreselectionController;
 use App\Http\Controllers\Admin\PreselectionQuestionController;
 use App\Http\Controllers\Admin\QuestionController;
@@ -62,6 +63,9 @@ Route::prefix('admin')->group(function () {
 
             // Dashboard live
             Route::get('/dashboard', [DashboardController::class, 'show']);
+
+            // Récapitulatif complet de la session
+            Route::get('/recap', [RecapController::class, 'show']);
 
             // Projection — consulter et générer un code d'accès
             Route::get('/projection', [ProjectionController::class, 'show']);
