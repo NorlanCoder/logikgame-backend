@@ -316,6 +316,51 @@ class QuestionController extends Controller
         return response()->json(null, 204);
     }
 
+    public function duplicate(Session $session, SessionRound $round, Question $question): JsonResponse
+    {
+        $nextOrder = $round->questions()->max('display_order') + 1;
+
+        $copy = Question::create([
+            'session_round_id' => $round->id,
+            'text' => $question->text,
+            'answer_type' => $question->answer_type,
+            'correct_answer' => $question->correct_answer,
+            'duration' => $question->duration,
+            'display_order' => $nextOrder,
+            'media_url' => $question->media_url,
+            'media_type' => $question->media_type,
+            'number_is_decimal' => $question->number_is_decimal,
+            'status' => QuestionStatus::Pending,
+        ]);
+
+        foreach ($question->choices as $choice) {
+            QuestionChoice::create([
+                'question_id' => $copy->id,
+                'label' => $choice->label,
+                'is_correct' => $choice->is_correct,
+                'display_order' => $choice->display_order,
+            ]);
+        }
+
+        if ($question->hint) {
+            QuestionHint::create([
+                'question_id' => $copy->id,
+                'hint_type' => $question->hint->hint_type,
+                'time_penalty_seconds' => $question->hint->time_penalty_seconds,
+                'removed_choice_ids' => $question->hint->removed_choice_ids,
+                'revealed_letters' => $question->hint->revealed_letters,
+                'range_hint_text' => $question->hint->range_hint_text,
+                'range_min' => $question->hint->range_min,
+                'range_max' => $question->hint->range_max,
+            ]);
+        }
+
+        return response()->json(
+            new QuestionResource($copy->load(['choices', 'hint'])),
+            201
+        );
+    }
+
     private function detectMediaType(UploadedFile $file): MediaType
     {
         $extension = strtolower($file->getClientOriginalExtension());

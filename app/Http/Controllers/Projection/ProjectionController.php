@@ -185,7 +185,7 @@ class ProjectionController extends Controller
                 'id' => $q->id,
                 'text' => $q->text,
                 'answer_type' => $q->answer_type,
-                'media_url' => $q->media_url,
+                'media_url' => $q->media_url ? asset('storage/'.$q->media_url) : null,
                 'media_type' => $q->media_type,
                 'duration' => $q->duration,
                 'status' => $q->status,

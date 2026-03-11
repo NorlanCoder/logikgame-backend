@@ -46,6 +46,7 @@ Route::prefix('admin')->group(function () {
             Route::apiResource('rounds/{round}/questions', QuestionController::class)
                 ->except(['index']);
             Route::get('/rounds/{round}/questions', [QuestionController::class, 'index'])->name('admin.rounds.questions.index');
+            Route::post('/rounds/{round}/questions/{question}/duplicate', [QuestionController::class, 'duplicate']);
 
             // Indice d'une question (manche 2)
             Route::prefix('rounds/{round}/questions/{question}')->group(function () {
@@ -98,10 +99,12 @@ Route::prefix('admin')->group(function () {
                 Route::post('/finalize-top4', [AdminGameController::class, 'finalizeTop4']);
 
                 // Manches 6/7 — Duels
+                Route::post('/assign-duel-questions', [AdminGameController::class, 'assignDuelQuestions']);
                 Route::post('/setup-turn-order', [AdminGameController::class, 'setupTurnOrder']);
                 Route::get('/next-turn', [AdminGameController::class, 'getNextTurn']);
 
                 // Manche 8 — Finale
+                Route::post('/launch-finale-vote', [AdminGameController::class, 'launchFinaleVote']);
                 Route::post('/reveal-finale-choices', [AdminGameController::class, 'revealFinaleChoices']);
                 Route::post('/resolve-finale', [AdminGameController::class, 'resolveFinale']);
 

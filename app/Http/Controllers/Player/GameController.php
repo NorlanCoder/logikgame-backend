@@ -467,9 +467,16 @@ class GameController extends Controller
             ->where('session_id', $session->id)
             ->count();
 
+        $finalistCount = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', \App\Enums\SessionPlayerStatus::Finalist)
+            ->count();
+
         return response()->json([
             'message' => 'Choix enregistré.',
-            'both_ready' => $totalChoices >= 2,
+            'all_ready' => $totalChoices >= $finalistCount,
+            'votes_count' => $totalChoices,
+            'finalists_count' => $finalistCount,
         ]);
     }
 

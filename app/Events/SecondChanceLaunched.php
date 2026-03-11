@@ -50,7 +50,7 @@ class SecondChanceLaunched implements ShouldBroadcastNow
                 'id' => $this->secondChanceQuestion->id,
                 'text' => $this->secondChanceQuestion->text,
                 'answer_type' => $this->secondChanceQuestion->answer_type,
-                'media_url' => $this->secondChanceQuestion->media_url,
+                'media_url' => $this->secondChanceQuestion->media_url ? asset('storage/'.$this->secondChanceQuestion->media_url) : null,
                 'media_type' => $this->secondChanceQuestion->media_type,
                 'duration' => $this->secondChanceQuestion->duration,
                 'launched_at' => $this->secondChanceQuestion->launched_at?->toIso8601String(),
