@@ -21,7 +21,7 @@ class AdminFactory extends Factory
         return [
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
-            'password' => static::$password ??= Hash::make('password'),
+            'password' =>  Hash::make('password'),
             'avatar' => null,
             'is_active' => true,
         ];

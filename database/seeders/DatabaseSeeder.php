@@ -19,7 +19,7 @@ class DatabaseSeeder extends Seeder
         $admin = Admin::create([
             'name'      => 'Admin LogikGame',
             'email'     => 'admin@logikgame.com',
-            'password'  => static::$password ??= Hash::make('password'),
+            'password'  => Hash::make('password'),
             'avatar'    => null,
             'is_active' => true,
         ]);
