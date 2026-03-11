@@ -470,24 +470,6 @@ class GameController extends Controller
                 }
             }
 
-            // Envoyer le résultat individuel à chaque joueur
-            foreach ($activePlayers as $player) {
-                $answer = PlayerAnswer::query()
-                    ->where('session_player_id', $player->id)
-                    ->where('question_id', $question->id)
-                    ->where('is_second_chance', false)
-                    ->first();
-
-                if ($answer) {
-                    event(new AnswerResult(
-                        $player,
-                        $question->id,
-                        (bool) $answer->is_correct,
-                        $question->correct_answer,
-                    ));
-                }
-            }
-
             // Résolution selon le type de manche
             $eliminated = match ($round->round_type) {
                 RoundType::SecondChance => $this->handleSecondChanceEvaluation($session, $question, $round, $needsSecondChance, $failedPlayerIds),
@@ -503,35 +485,7 @@ class GameController extends Controller
             'eliminated_player_ids' => $eliminated,
         ];
 
-        // Diffuser les événements temps réel
-        if (count($eliminated) > 0) {
-            $session->refresh();
-            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
-                ->with('player:id,pseudo')
-                ->get()
-                ->map(fn (SessionPlayer $sp) => [
-                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
-                    'reason' => $sp->elimination_reason?->value ?? 'wrong_answer',
-                ])->toArray();
-
-            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
-            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
-        }
-
-        // Construire les résultats par joueur pour la projection
-        $playerResults = PlayerAnswer::query()
-            ->where('question_id', $question->id)
-            ->where('is_second_chance', false)
-            ->with('sessionPlayer.player:id,pseudo')
-            ->get()
-            ->map(fn (PlayerAnswer $pa) => [
-                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
-                'is_correct' => (bool) $pa->is_correct,
-                'is_timeout' => (bool) $pa->is_timeout,
-            ])
-            ->values()
-            ->toArray();
-
+        // Diffuser la clôture sans résultats (les résultats seront envoyés au reveal)
         event(new QuestionClosed(
             $session,
             $question->id,
@@ -546,7 +500,7 @@ class GameController extends Controller
                     ->values()
                     ->toArray()
                 : [],
-            $playerResults,
+            [],
         ));
 
         if ($needsSecondChance) {
@@ -708,14 +662,6 @@ class GameController extends Controller
                     $scAnswer->update(['is_correct' => $isCorrect]);
                 }
 
-                // Envoyer le résultat SC individuel au joueur
-                event(new AnswerResult(
-                    $sessionPlayer,
-                    $question->id,
-                    (bool) $scAnswer->is_correct,
-                    $scQuestion->correct_answer,
-                ));
-
                 // Si échec à la seconde chance → élimination
                 if (! $scAnswer->is_correct) {
                     $eliminated[] = $this->eliminatePlayer(
@@ -729,37 +675,8 @@ class GameController extends Controller
             }
         });
 
-        // Diffuser les événements temps réel
-        if (count($eliminated) > 0) {
-            $session->refresh();
-            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
-                ->with('player:id,pseudo')
-                ->get()
-                ->map(fn (SessionPlayer $sp) => [
-                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
-                    'reason' => $sp->elimination_reason?->value ?? 'second_chance_failed',
-                ])->toArray();
-
-            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
-            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
-        }
-
-        // Construire les résultats SC par joueur pour la projection
-        $scPlayerResults = PlayerAnswer::query()
-            ->where('question_id', $question->id)
-            ->where('is_second_chance', true)
-            ->with('sessionPlayer.player:id,pseudo')
-            ->get()
-            ->map(fn (PlayerAnswer $pa) => [
-                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
-                'is_correct' => (bool) $pa->is_correct,
-                'is_timeout' => (bool) $pa->is_timeout,
-            ])
-            ->values()
-            ->toArray();
-
-        // Diffuser la clôture de la seconde chance (pour la projection)
-        event(new SecondChanceClosed($session, $question->id, $scPlayerResults));
+        // Diffuser la clôture de la seconde chance sans résultats (envoyés au reveal)
+        event(new SecondChanceClosed($session, $question->id, []));
 
         return response()->json([
             'message' => 'Seconde chance clôturée.',
@@ -806,11 +723,76 @@ class GameController extends Controller
             'is_correct' => $c->is_correct,
         ])->toArray();
 
+        // Envoyer le résultat SC individuel à chaque joueur concerné
+        $failedPlayerIds = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_correct', false)
+            ->where('is_second_chance', false)
+            ->pluck('session_player_id');
+
+        foreach ($failedPlayerIds as $sessionPlayerId) {
+            $sessionPlayer = SessionPlayer::find($sessionPlayerId);
+            if (! $sessionPlayer) {
+                continue;
+            }
+
+            $scAnswer = PlayerAnswer::query()
+                ->where('session_player_id', $sessionPlayerId)
+                ->where('question_id', $question->id)
+                ->where('is_second_chance', true)
+                ->first();
+
+            if ($scAnswer) {
+                event(new AnswerResult(
+                    $sessionPlayer,
+                    $question->id,
+                    (bool) $scAnswer->is_correct,
+                    $scQuestion->correct_answer,
+                ));
+            }
+        }
+
+        // Diffuser les éliminations SC (créées lors du close, envoyées maintenant)
+        $eliminated = Elimination::query()
+            ->where('question_id', $question->id)
+            ->where('reason', EliminationReason::SecondChanceFailed)
+            ->pluck('session_player_id')
+            ->toArray();
+
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'second_chance_failed',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        // Construire les résultats SC par joueur pour la projection
+        $scPlayerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', true)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
+
         event(new SecondChanceRevealed(
             $session,
             $question->id,
             $scQuestion->correct_answer,
             $choicesData,
+            $scPlayerResults,
         ));
 
         return response()->json([
@@ -1444,6 +1426,8 @@ class GameController extends Controller
             return $this->statusError('Aucune question clôturée à révéler.');
         }
 
+        $round = $session->currentRound;
+
         $question->update([
             'status' => QuestionStatus::Revealed,
             'revealed_at' => now(),
@@ -1455,7 +1439,60 @@ class GameController extends Controller
             'is_correct' => $c->is_correct,
         ])->toArray();
 
-        event(new AnswerRevealed($session, $question->id, $question->correct_answer, $choicesData));
+        // Envoyer le résultat individuel à chaque joueur (AnswerResult privé)
+        $activePlayers = $this->getRespondingPlayers($session, $question, $round);
+        foreach ($activePlayers as $player) {
+            $answer = PlayerAnswer::query()
+                ->where('session_player_id', $player->id)
+                ->where('question_id', $question->id)
+                ->where('is_second_chance', false)
+                ->first();
+
+            if ($answer) {
+                event(new AnswerResult(
+                    $player,
+                    $question->id,
+                    (bool) $answer->is_correct,
+                    $question->correct_answer,
+                ));
+            }
+        }
+
+        // Diffuser les éliminations (créées lors du close, envoyées maintenant)
+        $eliminated = Elimination::query()
+            ->where('question_id', $question->id)
+            ->pluck('session_player_id')
+            ->toArray();
+
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'wrong_answer',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        // Construire les résultats par joueur pour la projection
+        $playerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', false)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
+
+        event(new AnswerRevealed($session, $question->id, $question->correct_answer, $choicesData, $playerResults));
 
         return response()->json([
             'message' => 'Réponse révélée.',

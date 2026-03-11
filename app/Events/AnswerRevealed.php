@@ -19,6 +19,7 @@ class AnswerRevealed implements ShouldBroadcastNow
         public string $correctAnswer,
         /** @var array<int, array{id: int, label: string, is_correct: bool}> */
         public array $choices = [],
+        public array $playerResults = [],
     ) {}
 
     /**
@@ -45,6 +46,7 @@ class AnswerRevealed implements ShouldBroadcastNow
             'question_id' => $this->questionId,
             'correct_answer' => $this->correctAnswer,
             'choices' => $this->choices,
+            'player_results' => $this->playerResults,
         ];
     }
 }
