@@ -116,6 +116,7 @@ class GameController extends Controller
             'my_status' => [
                 'status' => $sessionPlayer->status,
                 'capital' => $sessionPlayer->capital,
+                'personal_jackpot' => $sessionPlayer->personal_jackpot ?? 0,
                 'hint_used' => (bool) HintUsage::query()
                     ->where('session_player_id', $sessionPlayer->id)
                     ->where('session_round_id', $session->current_round_id)
