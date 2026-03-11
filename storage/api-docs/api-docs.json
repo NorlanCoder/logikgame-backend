@@ -393,6 +393,39 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/game/confirm-selection": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Confirmer la sélection et notifier les joueurs",
+                "description": "Passe la session en statut Ready et envoie les emails aux joueurs sélectionnés et rejetés.",
+                "operationId": "311a920a6c5eee30a2898de70a463ff8",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Sélection confirmée, notifications envoyées"
+                    },
+                    "422": {
+                        "description": "Statut invalide ou aucun joueur sélectionné"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions/{session}/game/start": {
             "post": {
                 "tags": [
@@ -576,6 +609,72 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/game/reveal-second-chance": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Révéler la réponse de la seconde chance",
+                "description": "Révèle la bonne réponse de la question de seconde chance.",
+                "operationId": "7541f38f018d4d99b44423c172c5bb65",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Réponse SC révélée"
+                    },
+                    "422": {
+                        "description": "Statut invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/show-sc-results": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Afficher les résultats de la seconde chance",
+                "description": "Affiche les résultats de la seconde chance.",
+                "operationId": "3b1793b63aea3edd236eb740b3f66862",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Résultats SC affichés"
+                    },
+                    "422": {
+                        "description": "Aucune SC révélée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions/{session}/game/finalize-top4": {
             "post": {
                 "tags": [
@@ -697,6 +796,72 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/game/assign-duel-questions": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Attribuer les questions aux joueurs pour les manches duel",
+                "description": "Assigne automatiquement les questions de la manche aux joueurs (manches 6/7).\nConfigure l'ordre de passage et pré-attribue chaque question à un joueur.",
+                "operationId": "6bb91f92e242b48025820ad7135fe1b0",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Questions attribuées"
+                    },
+                    "422": {
+                        "description": "Manche non compatible ou conditions non remplies"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/game/launch-finale-vote": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Lancer le vote de la finale (continuer/abandonner)",
+                "description": "Lance le vote de la finale : marque les joueurs actifs comme finalistes\net diffuse l'événement pour que les joueurs puissent voter.",
+                "operationId": "e4abf23073cbb07f6c753e24e132e3d0",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Vote lancé"
+                    },
+                    "422": {
+                        "description": "Pas en finale"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions/{session}/game/reveal-finale-choices": {
             "post": {
                 "tags": [
@@ -796,6 +961,39 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/game/show-results": {
+            "post": {
+                "tags": [
+                    "Game Engine"
+                ],
+                "summary": "Afficher les résultats de la question courante",
+                "description": "Affiche les résultats (AnswerResult privé, éliminations, cagnotte).",
+                "operationId": "b073dfc38abaa1a83b0abc3abab519a9",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Résultats affichés"
+                    },
+                    "422": {
+                        "description": "Aucune question révélée"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions/{session}/game/next-round": {
             "post": {
                 "tags": [
@@ -853,6 +1051,86 @@
                     },
                     "422": {
                         "description": "Session pas en cours"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/preselection/registrations": {
+            "get": {
+                "tags": [
+                    "Admin Preselection"
+                ],
+                "summary": "Liste des inscrits avec leurs résultats de pré-sélection",
+                "description": "Liste des inscrits avec leur score de pré-sélection.\nTriés par score décroissant puis temps total croissant.",
+                "operationId": "aeb4d0edae4c18eb64614c9f6b1729c6",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtrer par statut : registered, preselection_pending, preselection_done, selected, rejected",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des inscrits triés par score"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/admin/sessions/{session}/preselection/registrations/{registration}": {
+            "get": {
+                "tags": [
+                    "Admin Preselection"
+                ],
+                "summary": "Détail d'un inscrit avec ses réponses",
+                "description": "Détail d'une inscription : joueur + résultat + réponses question par question.",
+                "operationId": "40dfe55b1e626863535e32cc5b220f60",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "registration",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail de l'inscrit"
+                    },
+                    "404": {
+                        "description": "Inscription non trouvée"
                     }
                 },
                 "security": [
@@ -2680,6 +2958,34 @@
                 ]
             }
         },
+        "/player/preselection/verify": {
+            "get": {
+                "tags": [
+                    "Player Preselection"
+                ],
+                "summary": "Vérifier un token de pré-sélection",
+                "description": "Vérifie un token de pré-sélection et retourne les infos du joueur/inscription.",
+                "operationId": "e1739bfe36be70ab9f8828e7382f6e99",
+                "parameters": [
+                    {
+                        "name": "token",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Informations de l'inscription"
+                    },
+                    "404": {
+                        "description": "Token invalide"
+                    }
+                }
+            }
+        },
         "/player/sessions/{session}/preselection/questions": {
             "get": {
                 "tags": [
@@ -2719,16 +3025,12 @@
                         "application/json": {
                             "schema": {
                                 "required": [
-                                    "registration_id",
+                                    "registration_token",
                                     "answers"
                                 ],
                                 "properties": {
-                                    "registration_id": {
-                                        "type": "integer"
-                                    },
                                     "registration_token": {
-                                        "type": "string",
-                                        "nullable": true
+                                        "type": "string"
                                     },
                                     "answers": {
                                         "type": "array",
@@ -2858,12 +3160,12 @@
                 "tags": [
                     "Player Sessions"
                 ],
-                "summary": "Lister les sessions ouvertes (inscription ou présélection)",
-                "description": "Retourne les sessions publiquement accessibles :\n- preselection → inscriptions + quiz actifs",
+                "summary": "Lister les sessions publiques (inscription, prêtes ou en cours)",
+                "description": "Retourne les sessions publiquement accessibles :\n- preselection → inscriptions + quiz actifs\n- ready / in_progress → sessions en cours ou sur le point de commencer",
                 "operationId": "840ccfb79990b4889ae740f3d962e00b",
                 "responses": {
                     "200": {
-                        "description": "Liste des sessions ouvertes",
+                        "description": "Liste des sessions publiques",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2904,6 +3206,39 @@
                         "description": "Session introuvable"
                     }
                 }
+            }
+        },
+        "/admin/sessions/{session}/projection": {
+            "get": {
+                "tags": [
+                    "Projection"
+                ],
+                "summary": "Récupérer le code d'accès projection actif",
+                "description": "Récupère le code d'accès projection actif pour une session.",
+                "operationId": "c5b4de8ee47fb767d1538ea6593a085d",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Code de projection actif"
+                    },
+                    "404": {
+                        "description": "Aucun code actif"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
             }
         },
         "/admin/sessions/{session}/projection/generate": {
@@ -3063,6 +3398,10 @@
         {
             "name": "Projection",
             "description": "Écran de projection public"
+        },
+        {
+            "name": "Admin Preselection",
+            "description": "Admin Preselection"
         },
         {
             "name": "Question Hints",

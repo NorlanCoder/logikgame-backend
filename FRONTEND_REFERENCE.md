@@ -381,7 +381,8 @@ Toutes les routes ci-dessous sont `POST` (sauf `next-turn` qui est `GET`), auth 
 |-------|--------|
 | `/launch-question` | Lance une question (body: `{ "question_id": int }`) |
 | `/close-question` | Clôture la question en cours |
-| `/reveal-answer` | Révèle la bonne réponse |
+| `/reveal-answer` | Révèle la bonne réponse (affiche uniquement la réponse correcte) |
+| `/show-results` | Affiche les résultats joueurs, éliminations et jackpot |
 
 #### Manche 3 — Seconde chance
 
@@ -389,6 +390,8 @@ Toutes les routes ci-dessous sont `POST` (sauf `next-turn` qui est `GET`), auth 
 |-------|--------|
 | `/launch-second-chance` | Lance la question de seconde chance |
 | `/close-second-chance` | Clôture la seconde chance |
+| `/reveal-second-chance` | Révèle la réponse de la seconde chance |
+| `/show-sc-results` | Affiche les résultats de la seconde chance |
 
 #### Manche 5 — Top 4
 
@@ -724,7 +727,7 @@ Résultat individuel après soumission.
 ```
 
 #### `answer.revealed` — Canal: `session.{id}`
-L'admin révèle la bonne réponse.
+L'admin révèle la bonne réponse (étape 2 — affiche uniquement la réponse, sans résultats joueurs).
 ```json
 {
   "question_id": 5,
@@ -733,6 +736,44 @@ L'admin révèle la bonne réponse.
     { "id": 1, "label": "Paris", "is_correct": true },
     { "id": 2, "label": "Lyon", "is_correct": false },
     { "id": 3, "label": "Marseille", "is_correct": false }
+  ]
+}
+```
+
+#### `results.revealed` — Canal: `session.{id}`
+L'admin affiche les résultats (étape 3 — après reveal). Déclenche aussi `player.eliminated` et `jackpot.updated`.
+```json
+{
+  "question_id": 5,
+  "player_results": [
+    { "pseudo": "Player1", "is_correct": true, "is_timeout": false },
+    { "pseudo": "Player2", "is_correct": false, "is_timeout": false },
+    { "pseudo": "Player3", "is_correct": false, "is_timeout": true }
+  ]
+}
+```
+
+#### `second_chance.revealed` — Canal: `session.{id}`
+L'admin révèle la réponse de la seconde chance (affiche uniquement la réponse).
+```json
+{
+  "main_question_id": 5,
+  "correct_answer": "Paris",
+  "choices": [
+    { "id": 10, "label": "Paris", "is_correct": true },
+    { "id": 11, "label": "Lyon", "is_correct": false }
+  ]
+}
+```
+
+#### `sc_results.revealed` — Canal: `session.{id}`
+L'admin affiche les résultats de la seconde chance.
+```json
+{
+  "main_question_id": 5,
+  "player_results": [
+    { "pseudo": "Player2", "is_correct": true, "is_timeout": false },
+    { "pseudo": "Player3", "is_correct": false, "is_timeout": true }
   ]
 }
 ```
@@ -985,12 +1026,12 @@ Pour chaque manche active :
     14. [timer.tick émis chaque seconde]
     15. [Attendre les réponses / timer expire]
     16. Clôturer la question (POST /game/close-question)
-    17. Révéler la réponse (POST /game/reveal-answer)
-    18. [Afficher éliminés, jackpot mis à jour]
+    17. Révéler la réponse (POST /game/reveal-answer) → affiche uniquement la bonne réponse
+    18. Afficher les résultats (POST /game/show-results) → éliminés, jackpot, résultats joueurs
   19. Passer à la manche suivante (POST /game/next-round)
 
 --- PHASES SPÉCIALES ---
-Manche 3 : launch-second-chance → close-second-chance
+Manche 3 : launch-second-chance → close-second-chance → reveal-second-chance → show-sc-results
 Manche 5 : finalize-top4
 Manche 6/7 : setup-turn-order → boucle next-turn
 Manche 8 : reveal-finale-choices → resolve-finale
