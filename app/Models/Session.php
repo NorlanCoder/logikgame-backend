@@ -34,7 +34,6 @@ class Session extends Model
         'jackpot',
         'players_remaining',
         'reconnection_delay',
-        'projection_code',
         'started_at',
         'ended_at',
     ];

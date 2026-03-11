@@ -16,6 +16,39 @@ use OpenApi\Attributes as OA;
 class ProjectionController extends Controller
 {
     /**
+     * Récupère le code d'accès projection actif pour une session.
+     */
+    #[OA\Get(
+        path: '/admin/sessions/{session}/projection',
+        summary: 'Récupérer le code d\'accès projection actif',
+        security: [['sanctum' => []]],
+        tags: ['Projection'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Code de projection actif'),
+            new OA\Response(response: 404, description: 'Aucun code actif'),
+        ],
+    )]
+    public function show(Session $session): JsonResponse
+    {
+        $projection = ProjectionAccess::query()
+            ->where('session_id', $session->id)
+            ->where('is_active', true)
+            ->latest()
+            ->first();
+
+        if (! $projection) {
+            return response()->json(['message' => 'Aucun code de projection actif pour cette session.'], 404);
+        }
+
+        return response()->json([
+            'access_code' => $projection->access_code,
+            'url' => "/projection/{$projection->access_code}",
+            'created_at' => $projection->created_at?->toIso8601String(),
+        ]);
+    }
+
+    /**
      * Génère un code d'accès projection pour une session (admin).
      */
     #[OA\Post(
@@ -152,7 +185,7 @@ class ProjectionController extends Controller
                 'id' => $q->id,
                 'text' => $q->text,
                 'answer_type' => $q->answer_type,
-                'media_url' => $q->media_url,
+                'media_url' => $q->media_url ? asset('storage/'.$q->media_url) : null,
                 'media_type' => $q->media_type,
                 'duration' => $q->duration,
                 'status' => $q->status,

@@ -13,7 +13,11 @@ use App\Enums\RoundStatus;
 use App\Enums\RoundType;
 use App\Enums\SessionPlayerStatus;
 use App\Enums\SessionStatus;
+use App\Events\AnswerResult;
 use App\Events\AnswerRevealed;
+use App\Events\DuelQuestionsAssigned;
+use App\Events\FinaleChoicesRevealed;
+use App\Events\FinaleVoteLaunched;
 use App\Events\GameEnded;
 use App\Events\JackpotUpdated;
 use App\Events\PlayerEliminated;
@@ -21,6 +25,10 @@ use App\Events\QuestionClosed;
 use App\Events\QuestionLaunched;
 use App\Events\RoundEnded;
 use App\Events\RoundStarted;
+use App\Events\SecondChanceClosed;
+use App\Events\SecondChanceLaunched;
+use App\Events\SecondChanceRevealed;
+use App\Events\Top4Finalized;
 use App\Http\Controllers\Controller;
 use App\Models\Elimination;
 use App\Models\FinaleChoice;
@@ -155,8 +163,8 @@ class GameController extends Controller
     )]
     public function selectPlayers(Request $request, Session $session): JsonResponse
     {
-        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed])) {
-            return $this->statusError('La pré-sélection doit être en cours ou les inscriptions clôturées.');
+        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed, SessionStatus::Ready])) {
+            return $this->statusError('La pré-sélection doit être en cours, les inscriptions clôturées, ou la session prête.');
         }
 
         $validated = $request->validate([
@@ -194,22 +202,54 @@ class GameController extends Controller
             }
 
             $session->update([
-                'status' => SessionStatus::Ready,
                 'players_remaining' => $registrations->count(),
             ]);
         });
 
-        // Notifier les joueurs sélectionnés
+        return response()->json([
+            'message' => count($validated['registration_ids']).' joueurs sélectionnés.',
+            'players_count' => count($validated['registration_ids']),
+        ]);
+    }
+
+    /**
+     * Confirme la sélection, passe en Ready et envoie les notifications.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/confirm-selection',
+        summary: 'Confirmer la sélection et notifier les joueurs',
+        description: 'Passe la session en statut Ready et envoie les emails aux joueurs sélectionnés et rejetés.',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Sélection confirmée, notifications envoyées'),
+            new OA\Response(response: 422, description: 'Statut invalide ou aucun joueur sélectionné'),
+        ],
+    )]
+    public function confirmSelection(Session $session): JsonResponse
+    {
+        if (! in_array($session->status, [SessionStatus::Preselection, SessionStatus::RegistrationClosed, SessionStatus::Ready])) {
+            return $this->statusError('La session doit être en pré-sélection, inscriptions clôturées, ou prête.');
+        }
+
         $selectedPlayers = SessionPlayer::query()
             ->where('session_id', $session->id)
             ->with('player')
             ->get();
 
+        if ($selectedPlayers->isEmpty()) {
+            return $this->statusError('Aucun joueur sélectionné. Utilisez d\'abord select-players.');
+        }
+
+        $session->update([
+            'status' => SessionStatus::Ready,
+        ]);
+
         foreach ($selectedPlayers as $sessionPlayer) {
             $sessionPlayer->player->notify(new PlayerSelected($session, $sessionPlayer));
         }
 
-        // Notifier les joueurs rejetés
         $rejectedRegistrations = Registration::query()
             ->where('session_id', $session->id)
             ->where('status', RegistrationStatus::Rejected)
@@ -221,8 +261,8 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'message' => count($validated['registration_ids']).' joueurs sélectionnés.',
-            'players_count' => count($validated['registration_ids']),
+            'message' => 'Sélection confirmée. '.$selectedPlayers->count().' joueurs notifiés.',
+            'players_count' => $selectedPlayers->count(),
         ]);
     }
 
@@ -326,6 +366,7 @@ class GameController extends Controller
 
         $validated = $request->validate([
             'question_id' => ['required', 'integer', 'exists:questions,id'],
+            'assigned_player_id' => ['nullable', 'integer', 'exists:session_players,id'],
         ]);
 
         $question = Question::findOrFail($validated['question_id']);
@@ -338,10 +379,19 @@ class GameController extends Controller
             return $this->statusError('Cette question n\'appartient pas à cette session.');
         }
 
-        DB::transaction(function () use ($session, $question) {
+        // En duels, le joueur assigné est requis
+        $round = $question->sessionRound;
+        $assignedPlayerId = $validated['assigned_player_id'] ?? $question->assigned_player_id;
+
+        if (in_array($round->round_type, [RoundType::DuelJackpot, RoundType::DuelElimination]) && ! $assignedPlayerId) {
+            return $this->statusError('En manche Duel, un joueur assigné est requis (assigned_player_id).');
+        }
+
+        DB::transaction(function () use ($session, $question, $assignedPlayerId) {
             $question->update([
                 'status' => QuestionStatus::Launched,
                 'launched_at' => now(),
+                'assigned_player_id' => $assignedPlayerId,
             ]);
 
             $session->update(['current_question_id' => $question->id]);
@@ -420,6 +470,24 @@ class GameController extends Controller
                 }
             }
 
+            // Envoyer le résultat individuel à chaque joueur
+            foreach ($activePlayers as $player) {
+                $answer = PlayerAnswer::query()
+                    ->where('session_player_id', $player->id)
+                    ->where('question_id', $question->id)
+                    ->where('is_second_chance', false)
+                    ->first();
+
+                if ($answer) {
+                    event(new AnswerResult(
+                        $player,
+                        $question->id,
+                        (bool) $answer->is_correct,
+                        $question->correct_answer,
+                    ));
+                }
+            }
+
             // Résolution selon le type de manche
             $eliminated = match ($round->round_type) {
                 RoundType::SecondChance => $this->handleSecondChanceEvaluation($session, $question, $round, $needsSecondChance, $failedPlayerIds),
@@ -446,9 +514,23 @@ class GameController extends Controller
                     'reason' => $sp->elimination_reason?->value ?? 'wrong_answer',
                 ])->toArray();
 
-            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot));
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
             event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
         }
+
+        // Construire les résultats par joueur pour la projection
+        $playerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', false)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
 
         event(new QuestionClosed(
             $session,
@@ -456,6 +538,15 @@ class GameController extends Controller
             PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->count(),
             PlayerAnswer::where('question_id', $question->id)->where('is_second_chance', false)->where('is_correct', true)->count(),
             count($eliminated),
+            $needsSecondChance
+                ? SessionPlayer::whereIn('id', $failedPlayerIds)
+                    ->with('player:id,pseudo')
+                    ->get()
+                    ->map(fn (SessionPlayer $sp) => $sp->player->pseudo ?? 'Joueur')
+                    ->values()
+                    ->toArray()
+                : [],
+            $playerResults,
         ));
 
         if ($needsSecondChance) {
@@ -516,6 +607,16 @@ class GameController extends Controller
             'status' => QuestionStatus::Launched,
             'launched_at' => now(),
         ]);
+
+        // Trouver les joueurs ayant échoué la question principale
+        $failedPlayerIds = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_correct', false)
+            ->where('is_second_chance', false)
+            ->pluck('session_player_id')
+            ->toArray();
+
+        event(new SecondChanceLaunched($session, $scQuestion, $question->id, $failedPlayerIds));
 
         return response()->json([
             'message' => 'Question de seconde chance lancée.',
@@ -607,6 +708,14 @@ class GameController extends Controller
                     $scAnswer->update(['is_correct' => $isCorrect]);
                 }
 
+                // Envoyer le résultat SC individuel au joueur
+                event(new AnswerResult(
+                    $sessionPlayer,
+                    $question->id,
+                    (bool) $scAnswer->is_correct,
+                    $scQuestion->correct_answer,
+                ));
+
                 // Si échec à la seconde chance → élimination
                 if (! $scAnswer->is_correct) {
                     $eliminated[] = $this->eliminatePlayer(
@@ -620,10 +729,93 @@ class GameController extends Controller
             }
         });
 
+        // Diffuser les événements temps réel
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'second_chance_failed',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        // Construire les résultats SC par joueur pour la projection
+        $scPlayerResults = PlayerAnswer::query()
+            ->where('question_id', $question->id)
+            ->where('is_second_chance', true)
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (PlayerAnswer $pa) => [
+                'pseudo' => $pa->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'is_correct' => (bool) $pa->is_correct,
+                'is_timeout' => (bool) $pa->is_timeout,
+            ])
+            ->values()
+            ->toArray();
+
+        // Diffuser la clôture de la seconde chance (pour la projection)
+        event(new SecondChanceClosed($session, $question->id, $scPlayerResults));
+
         return response()->json([
             'message' => 'Seconde chance clôturée.',
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
+        ]);
+    }
+
+    /**
+     * Révèle la bonne réponse de la question de seconde chance.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/reveal-second-chance',
+        summary: 'Révéler la réponse de la seconde chance',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Réponse SC révélée'),
+            new OA\Response(response: 422, description: 'Statut invalide'),
+        ],
+    )]
+    public function revealSecondChance(Session $session): JsonResponse
+    {
+        $question = $session->currentQuestion;
+
+        if (! $question) {
+            return $this->statusError('Aucune question principale courante.');
+        }
+
+        $scQuestion = $question->secondChanceQuestion;
+
+        if (! $scQuestion || $scQuestion->status !== QuestionStatus::Closed) {
+            return $this->statusError('Aucune question de seconde chance clôturée à révéler.');
+        }
+
+        $scQuestion->update([
+            'status' => QuestionStatus::Revealed,
+        ]);
+
+        $choicesData = $scQuestion->choices->map(fn ($c) => [
+            'id' => $c->id,
+            'label' => $c->label,
+            'is_correct' => $c->is_correct,
+        ])->toArray();
+
+        event(new SecondChanceRevealed(
+            $session,
+            $question->id,
+            $scQuestion->correct_answer,
+            $choicesData,
+        ));
+
+        return response()->json([
+            'message' => 'Réponse de seconde chance révélée.',
+            'correct_answer' => $scQuestion->correct_answer,
         ]);
     }
 
@@ -702,14 +894,18 @@ class GameController extends Controller
                 $rank = $index + 1;
                 $isQualified = $rank <= 4;
 
-                RoundRanking::create([
-                    'session_round_id' => $round->id,
-                    'session_player_id' => $ranking['session_player_id'],
-                    'correct_answers_count' => $ranking['correct_count'],
-                    'total_response_time_ms' => $ranking['total_time'],
-                    'rank' => $rank,
-                    'is_qualified' => $isQualified,
-                ]);
+                RoundRanking::updateOrCreate(
+                    [
+                        'session_round_id' => $round->id,
+                        'session_player_id' => $ranking['session_player_id'],
+                    ],
+                    [
+                        'correct_answers_count' => $ranking['correct_count'],
+                        'total_response_time_ms' => $ranking['total_time'],
+                        'rank' => $rank,
+                        'is_qualified' => $isQualified,
+                    ],
+                );
 
                 if (! $isQualified) {
                     $sessionPlayer = SessionPlayer::find($ranking['session_player_id']);
@@ -725,14 +921,44 @@ class GameController extends Controller
             }
         });
 
+        // Construire les données de classement avec pseudo
+        $rankingsData = RoundRanking::query()
+            ->where('session_round_id', $round->id)
+            ->orderBy('rank')
+            ->with('sessionPlayer.player:id,pseudo')
+            ->get()
+            ->map(fn (RoundRanking $r) => [
+                'session_player_id' => $r->session_player_id,
+                'pseudo' => $r->sessionPlayer?->player?->pseudo ?? 'Joueur',
+                'correct_answers_count' => $r->correct_answers_count,
+                'total_response_time_ms' => $r->total_response_time_ms,
+                'rank' => $r->rank,
+                'is_qualified' => (bool) $r->is_qualified,
+            ])
+            ->toArray();
+
+        // Diffuser les événements temps réel
+        if (count($eliminated) > 0) {
+            $session->refresh();
+            $eliminatedData = SessionPlayer::whereIn('id', $eliminated)
+                ->with('player:id,pseudo')
+                ->get()
+                ->map(fn (SessionPlayer $sp) => [
+                    'pseudo' => $sp->player->pseudo ?? 'Joueur',
+                    'reason' => $sp->elimination_reason?->value ?? 'top4_cutoff',
+                ])->toArray();
+
+            event(new PlayerEliminated($session, $eliminatedData, $session->players_remaining, $session->jackpot, $eliminated));
+            event(new JackpotUpdated($session, $session->jackpot, $session->players_remaining));
+        }
+
+        event(new Top4Finalized($session, $rankingsData));
+
         return response()->json([
             'message' => 'Top 4 sélectionné.',
             'eliminated_count' => count($eliminated),
             'eliminated_player_ids' => $eliminated,
-            'rankings' => RoundRanking::query()
-                ->where('session_round_id', $round->id)
-                ->orderBy('rank')
-                ->get(['session_player_id', 'correct_answers_count', 'total_response_time_ms', 'rank', 'is_qualified']),
+            'rankings' => $rankingsData,
         ]);
     }
 
@@ -879,9 +1105,163 @@ class GameController extends Controller
         ]);
     }
 
+    /**
+     * Assigne automatiquement les questions de la manche aux joueurs (manches 6/7).
+     * Configure l'ordre de passage et pré-attribue chaque question à un joueur.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/assign-duel-questions',
+        summary: 'Attribuer les questions aux joueurs pour les manches duel',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Questions attribuées'),
+            new OA\Response(response: 422, description: 'Manche non compatible ou conditions non remplies'),
+        ],
+    )]
+    public function assignDuelQuestions(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || ! in_array($round->round_type, [RoundType::DuelJackpot, RoundType::DuelElimination])) {
+            return $this->statusError('Cette action n\'est disponible qu\'en manche Duel.');
+        }
+
+        // Vérifier exactement 4 questions
+        $questions = Question::query()
+            ->where('session_round_id', $round->id)
+            ->where('status', QuestionStatus::Pending)
+            ->orderBy('display_order')
+            ->get();
+
+        if ($questions->count() !== 4) {
+            return $this->statusError('Les manches 6 et 7 doivent contenir exactement 4 questions (actuellement : '.$questions->count().').');
+        }
+
+        // Récupérer les joueurs actifs
+        $activePlayers = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Active)
+            ->with('player:id,pseudo')
+            ->get();
+
+        if ($activePlayers->isEmpty() || $activePlayers->count() > 4) {
+            return $this->statusError('Il faut entre 1 et 4 joueurs actifs pour cette manche (actuellement : '.$activePlayers->count().').');
+        }
+
+        $assignments = [];
+
+        DB::transaction(function () use ($round, $questions, $activePlayers, $session, &$assignments) {
+            // Supprimer l'ancien ordre de passage
+            Round6TurnOrder::query()
+                ->where('session_round_id', $round->id)
+                ->delete();
+
+            // Attribuer les questions aux joueurs (tournoi, cyclique si < 4 joueurs)
+            foreach ($questions as $index => $question) {
+                $playerIndex = $index % $activePlayers->count();
+                $player = $activePlayers[$playerIndex];
+
+                $question->update(['assigned_player_id' => $player->id]);
+
+                Round6TurnOrder::create([
+                    'session_round_id' => $round->id,
+                    'session_player_id' => $player->id,
+                    'turn_order' => $index + 1,
+                    'is_active' => true,
+                ]);
+
+                $assignments[] = [
+                    'session_player_id' => $player->id,
+                    'pseudo' => $player->player->pseudo,
+                    'turn_order' => $index + 1,
+                    'question_id' => $question->id,
+                ];
+            }
+
+            // Pour la manche 6, initialiser les cagnottes personnelles
+            if ($round->round_type === RoundType::DuelJackpot) {
+                Round6PlayerJackpot::query()
+                    ->where('session_round_id', $round->id)
+                    ->delete();
+
+                foreach ($activePlayers as $player) {
+                    Round6PlayerJackpot::create([
+                        'session_round_id' => $round->id,
+                        'session_player_id' => $player->id,
+                        'bonus_count' => 0,
+                        'personal_jackpot' => 1000,
+                    ]);
+                }
+            }
+        });
+
+        event(new DuelQuestionsAssigned($session, $assignments));
+
+        return response()->json([
+            'message' => 'Questions attribuées aux joueurs.',
+            'assignments' => $assignments,
+        ]);
+    }
+
     // ───────────────────────────────────────────────────────────
     //  Manche 8 — Finale
     // ───────────────────────────────────────────────────────────
+
+    /**
+     * Lance le vote de la finale : marque les joueurs actifs comme finalistes
+     * et diffuse l'événement pour que les joueurs puissent voter.
+     */
+    #[OA\Post(
+        path: '/admin/sessions/{session}/game/launch-finale-vote',
+        summary: 'Lancer le vote de la finale (continuer/abandonner)',
+        security: [['sanctum' => []]],
+        tags: ['Game Engine'],
+        parameters: [new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer'))],
+        responses: [
+            new OA\Response(response: 200, description: 'Vote lancé'),
+            new OA\Response(response: 422, description: 'Pas en finale'),
+        ],
+    )]
+    public function launchFinaleVote(Session $session): JsonResponse
+    {
+        $round = $session->currentRound;
+
+        if (! $round || $round->round_type !== RoundType::Finale) {
+            return $this->statusError('Cette action n\'est disponible qu\'en finale.');
+        }
+
+        // Marquer tous les joueurs encore actifs comme finalistes
+        $activePlayers = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Active)
+            ->get();
+
+        foreach ($activePlayers as $player) {
+            $player->update(['status' => SessionPlayerStatus::Finalist]);
+        }
+
+        // Supprimer d'éventuels anciens choix
+        FinaleChoice::query()->where('session_id', $session->id)->delete();
+
+        $finalists = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Finalist)
+            ->with('player:id,pseudo')
+            ->get()
+            ->map(fn ($sp) => [
+                'session_player_id' => $sp->id,
+                'pseudo' => $sp->player?->pseudo ?? 'Joueur',
+            ])->toArray();
+
+        event(new FinaleVoteLaunched($session, $finalists));
+
+        return response()->json([
+            'message' => 'Vote de la finale lancé.',
+            'finalists' => $finalists,
+        ]);
+    }
 
     /**
      * Révèle les choix des finalistes (continuer / abandonner).
@@ -907,10 +1287,16 @@ class GameController extends Controller
 
         $choices = FinaleChoice::query()
             ->where('session_id', $session->id)
+            ->with('sessionPlayer.player:id,pseudo')
             ->get();
 
-        if ($choices->count() < 2) {
-            return $this->statusError('Les deux finalistes n\'ont pas encore fait leur choix.');
+        $finalistCount = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Finalist)
+            ->count();
+
+        if ($choices->count() < $finalistCount) {
+            return $this->statusError('Tous les finalistes n\'ont pas encore fait leur choix ('.$choices->count().'/'.$finalistCount.').');
         }
 
         FinaleChoice::query()
@@ -921,16 +1307,26 @@ class GameController extends Controller
 
         $bothContinue = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Continue);
         $bothAbandon = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
-        $oneAbandons = ! $bothContinue && ! $bothAbandon;
+        $someAbandon = ! $bothContinue && ! $bothAbandon;
+
+        $choicesData = $choices->map(fn ($c) => [
+            'session_player_id' => $c->session_player_id,
+            'choice' => $c->choice->value,
+            'pseudo' => $c->sessionPlayer?->player?->pseudo ?? 'Joueur',
+        ])->toArray();
+
+        $scenario = $bothAbandon ? 'all_abandon' : ($someAbandon ? 'some_abandon' : 'all_continue');
+
+        $continuers = $choices->filter(fn ($c) => $c->choice === FinaleChoiceType::Continue)->count();
+
+        event(new FinaleChoicesRevealed($session, $choicesData, $scenario));
 
         return response()->json([
             'message' => 'Choix révélés.',
-            'choices' => $choices->map(fn ($c) => [
-                'session_player_id' => $c->session_player_id,
-                'choice' => $c->choice,
-            ]),
-            'scenario' => $bothAbandon ? 'both_abandon' : ($oneAbandons ? 'one_abandons' : 'both_continue'),
-            'needs_final_question' => $bothContinue || $oneAbandons,
+            'choices' => $choicesData,
+            'scenario' => $scenario,
+            'continuers_count' => $continuers,
+            'needs_final_question' => $continuers > 0,
         ]);
     }
 
@@ -960,25 +1356,32 @@ class GameController extends Controller
             ->where('session_id', $session->id)
             ->get();
 
-        if ($choices->count() < 2) {
-            return $this->statusError('Les deux finalistes doivent avoir fait leur choix.');
+        $finalistCount = SessionPlayer::query()
+            ->where('session_id', $session->id)
+            ->where('status', SessionPlayerStatus::Finalist)
+            ->count();
+
+        if ($choices->count() < $finalistCount) {
+            return $this->statusError('Tous les finalistes doivent avoir fait leur choix.');
         }
 
         $results = [];
 
         DB::transaction(function () use ($session, $round, $choices, &$results) {
-            $bothContinue = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Continue);
-            $bothAbandon = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
+            $allContinue = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Continue);
+            $allAbandon = $choices->every(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
+            $continuers = $choices->filter(fn ($c) => $c->choice === FinaleChoiceType::Continue);
+            $abandoners = $choices->filter(fn ($c) => $c->choice === FinaleChoiceType::Abandon);
 
-            if ($bothAbandon) {
-                // Scénario 5 : les deux abandonnent → 5000 chacun
-                $results = $this->resolveFinaleScenario5($session, $round, $choices);
-            } elseif ($bothContinue) {
-                // Scénarios 1, 2, 3 : les deux continuent → évaluer les réponses
-                $results = $this->resolveFinaleScenarios123($session, $round, $choices);
+            if ($allAbandon) {
+                // Tous abandonnent → 5000 chacun
+                $results = $this->resolveFinaleAllAbandon($session, $round, $choices);
+            } elseif ($allContinue) {
+                // Tous continuent → évaluer les réponses
+                $results = $this->resolveFinaleAllContinue($session, $round, $choices);
             } else {
-                // Scénario 4 : un abandonne
-                $results = $this->resolveFinaleScenario4($session, $round, $choices);
+                // Mixte : certains abandonnent, certains continuent
+                $results = $this->resolveFinaleMixed($session, $round, $continuers, $abandoners);
             }
 
             // Mettre à jour le statut des joueurs
@@ -991,6 +1394,23 @@ class GameController extends Controller
                 ]);
             }
         });
+
+        // Terminer la session et diffuser GameEnded
+        $session->update([
+            'status' => SessionStatus::Ended,
+            'ended_at' => now(),
+        ]);
+
+        $winners = collect($results)->map(function ($r) {
+            $sp = SessionPlayer::with('player:id,pseudo')->find($r['session_player_id']);
+
+            return [
+                'pseudo' => $sp?->player?->pseudo ?? 'Joueur',
+                'final_gain' => $r['final_gain'],
+            ];
+        })->toArray();
+
+        event(new GameEnded($session, $session->jackpot, $winners));
 
         return response()->json([
             'message' => 'Finale résolue.',
@@ -1157,7 +1577,7 @@ class GameController extends Controller
             ->get()
             ->map(fn ($r) => [
                 'pseudo' => $r->sessionPlayer->player->pseudo ?? 'Joueur',
-                'final_gain' => $r->gain,
+                'final_gain' => $r->final_gain,
             ])->toArray();
 
         event(new GameEnded($session, $session->jackpot, $winners));
@@ -1187,10 +1607,20 @@ class GameController extends Controller
             }
         }
 
-        return SessionPlayer::query()
+        $query = SessionPlayer::query()
             ->where('session_id', $session->id)
-            ->where('status', SessionPlayerStatus::Active)
-            ->get();
+            ->where('status', SessionPlayerStatus::Active);
+
+        // En manche 4 (RoundSkip), exclure les joueurs ayant passé la manche
+        if ($round->round_type === RoundType::RoundSkip) {
+            $skippedIds = \App\Models\RoundSkip::query()
+                ->where('session_round_id', $round->id)
+                ->pluck('session_player_id');
+
+            $query->whereNotIn('id', $skippedIds);
+        }
+
+        return $query->get();
     }
 
     /**
@@ -1315,6 +1745,9 @@ class GameController extends Controller
             if ($playerJackpot) {
                 $playerJackpot->increment('bonus_count');
                 $playerJackpot->increment('personal_jackpot', 1000);
+
+                // Synchroniser la cagnotte personnelle sur le SessionPlayer
+                $sessionPlayer->update(['personal_jackpot' => $playerJackpot->personal_jackpot]);
             }
 
             $this->logJackpotTransaction(
@@ -1407,8 +1840,8 @@ class GameController extends Controller
             return [];
         }
 
-        // En manche 7, le perdant est éliminé mais les deux accèdent à la finale
-        // Le perdant et le gagnant deviennent Finalist
+        // En manche 7, le perdant est éliminé.
+        // Quand il ne reste que 2 joueurs actifs, ceux-ci deviennent Finalist.
         $sessionPlayer->update([
             'status' => SessionPlayerStatus::Eliminated,
             'eliminated_at' => now(),
@@ -1434,35 +1867,23 @@ class GameController extends Controller
         $eliminated[] = $sessionPlayer->id;
 
         // Vérifier s'il ne reste que 2 joueurs → les marquer comme finalistes
+        // (la promotion effective en Finalist se fait via launchFinaleVote en manche 8)
         $remainingActive = Round6TurnOrder::query()
             ->where('session_round_id', $round->id)
             ->where('is_active', true)
             ->count();
 
-        if ($remainingActive <= 2) {
-            $finalistIds = Round6TurnOrder::query()
-                ->where('session_round_id', $round->id)
-                ->where('is_active', true)
-                ->pluck('session_player_id');
-
-            SessionPlayer::query()
-                ->whereIn('id', $finalistIds)
-                ->update(['status' => SessionPlayerStatus::Finalist]);
-        }
-
         return $eliminated;
     }
 
     // ───────────────────────────────────────────────────────────
-    //  Logique Finale (manche 8)
+    //  Logique Finale (manche 8) — N joueurs
     // ───────────────────────────────────────────────────────────
 
     /**
-     * Scénario 5 : les deux abandonnent → 5000 chacun.
-     *
-     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
+     * Tous les finalistes abandonnent → 5000 chacun.
      */
-    private function resolveFinaleScenario5(Session $session, SessionRound $round, $choices): array
+    private function resolveFinaleAllAbandon(Session $session, SessionRound $round, $choices): array
     {
         $results = [];
 
@@ -1484,7 +1905,7 @@ class GameController extends Controller
                 $round,
                 JackpotTransactionType::FinaleAbandonShare,
                 -$gain,
-                'Finale : les deux abandonnent — 5000 chacun',
+                'Finale : abandon — 5000',
             );
 
             $results[] = [
@@ -1500,111 +1921,19 @@ class GameController extends Controller
     }
 
     /**
-     * Scénario 4 : un abandonne, l'autre continue et répond seul.
-     *
-     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
+     * Tous les finalistes continuent → évaluer les réponses à la question finale.
+     *  - Tous ont bon → partage
+     *  - Certains ont bon → les gagnants se partagent le jackpot
+     *  - Aucun n'a bon → 2000 chacun
      */
-    private function resolveFinaleScenario4(Session $session, SessionRound $round, $choices): array
-    {
-        $results = [];
-        $abandoner = $choices->firstWhere('choice', FinaleChoiceType::Abandon);
-        $continuer = $choices->firstWhere('choice', FinaleChoiceType::Continue);
-
-        // L'abandonneur repart avec 2000
-        $abandonGain = 2000;
-
-        FinalResult::create([
-            'session_id' => $session->id,
-            'session_player_id' => $abandoner->session_player_id,
-            'finale_scenario' => FinaleScenario::OneAbandons,
-            'final_gain' => $abandonGain,
-            'is_winner' => false,
-            'position' => 2,
-        ]);
-
-        $this->logJackpotTransaction(
-            $session,
-            SessionPlayer::find($abandoner->session_player_id),
-            $round,
-            JackpotTransactionType::FinaleAbandonShare,
-            -$abandonGain,
-            'Finale : abandonneur repart avec 2000',
-        );
-
-        $results[] = [
-            'session_player_id' => $abandoner->session_player_id,
-            'finale_scenario' => FinaleScenario::OneAbandons,
-            'final_gain' => $abandonGain,
-            'is_winner' => false,
-            'position' => 2,
-        ];
-
-        // Le continueur : évaluer sa réponse à la question finale
-        $finalQuestion = $round->questions()->orderByDesc('display_order')->first();
-        $continuerGain = 0;
-        $isWinner = false;
-
-        if ($finalQuestion) {
-            $answer = PlayerAnswer::query()
-                ->where('session_player_id', $continuer->session_player_id)
-                ->where('question_id', $finalQuestion->id)
-                ->where('is_second_chance', false)
-                ->first();
-
-            if ($answer && $answer->is_correct) {
-                $continuerGain = $session->jackpot;
-                $isWinner = true;
-            } else {
-                $continuerGain = 0;
-            }
-        }
-
-        FinalResult::create([
-            'session_id' => $session->id,
-            'session_player_id' => $continuer->session_player_id,
-            'finale_scenario' => FinaleScenario::OneAbandons,
-            'final_gain' => $continuerGain,
-            'is_winner' => $isWinner,
-            'position' => 1,
-        ]);
-
-        if ($continuerGain > 0) {
-            $this->logJackpotTransaction(
-                $session,
-                SessionPlayer::find($continuer->session_player_id),
-                $round,
-                JackpotTransactionType::FinaleWin,
-                -$continuerGain,
-                "Finale : gagnant remporte {$continuerGain}",
-            );
-        }
-
-        $results[] = [
-            'session_player_id' => $continuer->session_player_id,
-            'finale_scenario' => FinaleScenario::OneAbandons,
-            'final_gain' => $continuerGain,
-            'is_winner' => $isWinner,
-            'position' => 1,
-        ];
-
-        return $results;
-    }
-
-    /**
-     * Scénarios 1, 2, 3 : les deux continuent.
-     *
-     * @return list<array{session_player_id: int, finale_scenario: FinaleScenario, final_gain: int, is_winner: bool, position: int}>
-     */
-    private function resolveFinaleScenarios123(Session $session, SessionRound $round, $choices): array
+    private function resolveFinaleAllContinue(Session $session, SessionRound $round, $choices): array
     {
         $results = [];
         $finalQuestion = $round->questions()->orderByDesc('display_order')->first();
 
         $playerResults = [];
-
         foreach ($choices as $choice) {
             $answer = null;
-
             if ($finalQuestion) {
                 $answer = PlayerAnswer::query()
                     ->where('session_player_id', $choice->session_player_id)
@@ -1612,7 +1941,139 @@ class GameController extends Controller
                     ->where('is_second_chance', false)
                     ->first();
             }
+            $playerResults[] = [
+                'session_player_id' => $choice->session_player_id,
+                'is_correct' => $answer?->is_correct ?? false,
+            ];
+        }
 
+        $correctCount = collect($playerResults)->where('is_correct', true)->count();
+        $total = count($playerResults);
+
+        if ($correctCount > 0 && $correctCount === $total) {
+            // Tous ont bon → partage équitable
+            $share = (int) floor($session->jackpot / $total);
+            foreach ($playerResults as $index => $pr) {
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
+                    'final_gain' => $share,
+                    'is_winner' => true,
+                    'position' => $index + 1,
+                ]);
+                $this->logJackpotTransaction(
+                    $session, SessionPlayer::find($pr['session_player_id']), $round,
+                    JackpotTransactionType::FinaleShare, -$share,
+                    "Finale : partage — {$share} chacun",
+                );
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
+                    'final_gain' => $share,
+                    'is_winner' => true,
+                    'position' => $index + 1,
+                ];
+            }
+        } elseif ($correctCount > 0) {
+            // Certains ont bon → les gagnants se partagent le jackpot
+            $share = (int) floor($session->jackpot / $correctCount);
+            foreach ($playerResults as $index => $pr) {
+                $gain = $pr['is_correct'] ? $share : 0;
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'final_gain' => $gain,
+                    'is_winner' => $pr['is_correct'],
+                    'position' => $pr['is_correct'] ? $index + 1 : $total,
+                ]);
+                if ($gain > 0) {
+                    $this->logJackpotTransaction(
+                        $session, SessionPlayer::find($pr['session_player_id']), $round,
+                        JackpotTransactionType::FinaleWin, -$gain,
+                        "Finale : gagnant remporte {$gain}",
+                    );
+                }
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'final_gain' => $gain,
+                    'is_winner' => $pr['is_correct'],
+                    'position' => $pr['is_correct'] ? $index + 1 : $total,
+                ];
+            }
+        } else {
+            // Aucun n'a bon → 2000 chacun
+            foreach ($playerResults as $index => $pr) {
+                $gain = 2000;
+                FinalResult::create([
+                    'session_id' => $session->id,
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => $index + 1,
+                ]);
+                $results[] = [
+                    'session_player_id' => $pr['session_player_id'],
+                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
+                    'final_gain' => $gain,
+                    'is_winner' => false,
+                    'position' => $index + 1,
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Mixte : certains abandonnent, certains continuent.
+     * - Abandonneurs → 2000 chacun
+     * - Continueurs → évaluer les réponses, ceux qui ont bon se partagent le jackpot
+     */
+    private function resolveFinaleMixed(Session $session, SessionRound $round, $continuers, $abandoners): array
+    {
+        $results = [];
+
+        // Abandonneurs : 2000 chacun
+        foreach ($abandoners as $index => $choice) {
+            $gain = 2000;
+            FinalResult::create([
+                'session_id' => $session->id,
+                'session_player_id' => $choice->session_player_id,
+                'finale_scenario' => FinaleScenario::OneAbandons,
+                'final_gain' => $gain,
+                'is_winner' => false,
+                'position' => 0,
+            ]);
+            $this->logJackpotTransaction(
+                $session, SessionPlayer::find($choice->session_player_id), $round,
+                JackpotTransactionType::FinaleAbandonShare, -$gain,
+                'Finale : abandonneur repart avec 2000',
+            );
+            $results[] = [
+                'session_player_id' => $choice->session_player_id,
+                'finale_scenario' => FinaleScenario::OneAbandons,
+                'final_gain' => $gain,
+                'is_winner' => false,
+                'position' => 0,
+            ];
+        }
+
+        // Continueurs : évaluer les réponses
+        $finalQuestion = $round->questions()->orderByDesc('display_order')->first();
+        $playerResults = [];
+        foreach ($continuers as $choice) {
+            $answer = null;
+            if ($finalQuestion) {
+                $answer = PlayerAnswer::query()
+                    ->where('session_player_id', $choice->session_player_id)
+                    ->where('question_id', $finalQuestion->id)
+                    ->where('is_second_chance', false)
+                    ->first();
+            }
             $playerResults[] = [
                 'session_player_id' => $choice->session_player_id,
                 'is_correct' => $answer?->is_correct ?? false,
@@ -1621,90 +2082,50 @@ class GameController extends Controller
 
         $correctCount = collect($playerResults)->where('is_correct', true)->count();
 
-        if ($correctCount === 2) {
-            // Scénario 1 : les deux réussissent → partage de la cagnotte
-            $share = (int) floor($session->jackpot / 2);
-
+        if ($correctCount > 0) {
+            $share = (int) floor($session->jackpot / $correctCount);
             foreach ($playerResults as $index => $pr) {
+                $gain = $pr['is_correct'] ? $share : 0;
                 FinalResult::create([
                     'session_id' => $session->id,
                     'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
-                    'final_gain' => $share,
-                    'is_winner' => true,
-                    'position' => $index + 1,
-                ]);
-
-                $this->logJackpotTransaction(
-                    $session,
-                    SessionPlayer::find($pr['session_player_id']),
-                    $round,
-                    JackpotTransactionType::FinaleShare,
-                    -$share,
-                    "Finale : partage — {$share} chacun",
-                );
-
-                $results[] = [
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothWin,
-                    'final_gain' => $share,
-                    'is_winner' => true,
-                    'position' => $index + 1,
-                ];
-            }
-        } elseif ($correctCount === 1) {
-            // Scénario 2 : un seul réussit → il remporte la totalité
-            foreach ($playerResults as $index => $pr) {
-                $gain = $pr['is_correct'] ? $session->jackpot : 0;
-
-                FinalResult::create([
-                    'session_id' => $session->id,
-                    'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'finale_scenario' => FinaleScenario::OneAbandons,
                     'final_gain' => $gain,
                     'is_winner' => $pr['is_correct'],
-                    'position' => $pr['is_correct'] ? 1 : 2,
+                    'position' => $pr['is_correct'] ? 1 : 0,
                 ]);
-
                 if ($gain > 0) {
                     $this->logJackpotTransaction(
-                        $session,
-                        SessionPlayer::find($pr['session_player_id']),
-                        $round,
-                        JackpotTransactionType::FinaleWin,
-                        -$gain,
+                        $session, SessionPlayer::find($pr['session_player_id']), $round,
+                        JackpotTransactionType::FinaleWin, -$gain,
                         "Finale : gagnant remporte {$gain}",
                     );
                 }
-
                 $results[] = [
                     'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueOneWins,
+                    'finale_scenario' => FinaleScenario::OneAbandons,
                     'final_gain' => $gain,
                     'is_winner' => $pr['is_correct'],
-                    'position' => $pr['is_correct'] ? 1 : 2,
+                    'position' => $pr['is_correct'] ? 1 : 0,
                 ];
             }
         } else {
-            // Scénario 3 : les deux échouent → chacun repart avec 2000
-            foreach ($playerResults as $index => $pr) {
-                $gain = 2000;
-
+            // Personne n'a bon → 0 chacun pour les continueurs
+            foreach ($playerResults as $pr) {
                 FinalResult::create([
                     'session_id' => $session->id,
                     'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
-                    'final_gain' => $gain,
+                    'finale_scenario' => FinaleScenario::OneAbandons,
+                    'final_gain' => 0,
                     'is_winner' => false,
-                    'position' => $index + 1,
+                    'position' => 0,
                 ]);
-
                 $results[] = [
                     'session_player_id' => $pr['session_player_id'],
-                    'finale_scenario' => FinaleScenario::BothContinueBothFail,
-                    'final_gain' => $gain,
+                    'finale_scenario' => FinaleScenario::OneAbandons,
+                    'final_gain' => 0,
                     'is_winner' => false,
-                    'position' => $index + 1,
+                    'position' => 0,
                 ];
             }
         }

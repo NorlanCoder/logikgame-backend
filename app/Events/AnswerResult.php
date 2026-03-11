@@ -5,11 +5,11 @@ namespace App\Events;
 use App\Models\SessionPlayer;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class AnswerResult implements ShouldBroadcast
+class AnswerResult implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -44,6 +44,7 @@ class AnswerResult implements ShouldBroadcast
             'question_id' => $this->questionId,
             'is_correct' => $this->isCorrect,
             'correct_answer' => $this->correctAnswer,
+            'personal_jackpot' => $this->sessionPlayer->personal_jackpot,
         ];
     }
 }

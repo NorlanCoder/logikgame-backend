@@ -5,11 +5,11 @@ namespace App\Events;
 use App\Models\Session;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PlayerEliminated implements ShouldBroadcast
+class PlayerEliminated implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -19,6 +19,8 @@ class PlayerEliminated implements ShouldBroadcast
         public array $eliminatedPlayers,
         public int $playersRemaining,
         public int $jackpot,
+        /** @var int[] IDs des session_players éliminés */
+        public array $eliminatedPlayerIds = [],
     ) {}
 
     /**
@@ -43,6 +45,7 @@ class PlayerEliminated implements ShouldBroadcast
     {
         return [
             'eliminated' => $this->eliminatedPlayers,
+            'eliminated_player_ids' => $this->eliminatedPlayerIds,
             'players_remaining' => $this->playersRemaining,
             'jackpot' => $this->jackpot,
         ];

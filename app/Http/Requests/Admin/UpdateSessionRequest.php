@@ -16,9 +16,20 @@ class UpdateSessionRequest extends FormRequest
      */
     public function rules(): array
     {
+        $session = $this->route('session');
+        $isPreGame = $session && in_array($session->status, [
+            \App\Enums\SessionStatus::Draft,
+            \App\Enums\SessionStatus::RegistrationOpen,
+        ]);
+
+        $scheduledAtRules = ['sometimes', 'date'];
+        if ($isPreGame) {
+            $scheduledAtRules[] = 'after:now';
+        }
+
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'scheduled_at' => ['sometimes', 'date'],
+            'scheduled_at' => $scheduledAtRules,
             'max_players' => ['sometimes', 'integer', 'min:2', 'max:1000'],
             'description' => ['nullable', 'string', 'max:5000'],
             'cover_image' => ['nullable', 'file', 'image', 'max:5120'],

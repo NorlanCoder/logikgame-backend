@@ -243,7 +243,7 @@ class QuestionController extends Controller
             ], 422);
         }
 
-        $data = collect($request->validated())->except(['media_file', 'remove_media'])->toArray();
+        $data = collect($request->validated())->except(['media_file', 'remove_media', 'choices'])->toArray();
 
         if ($request->hasFile('media_file')) {
             if ($question->media_url) {
@@ -258,6 +258,24 @@ class QuestionController extends Controller
             }
             $data['media_url'] = null;
             $data['media_type'] = MediaType::None;
+        }
+
+        // Recréer les choix QCM et recalculer correct_answer
+        $answerType = $data['answer_type'] ?? $question->answer_type->value;
+
+        if ($request->has('choices') && $answerType === 'qcm') {
+            $question->choices()->delete();
+
+            foreach ($request->choices as $index => $choiceData) {
+                QuestionChoice::create([
+                    'question_id' => $question->id,
+                    'label' => $choiceData['label'],
+                    'is_correct' => $choiceData['is_correct'] ?? false,
+                    'display_order' => $choiceData['display_order'] ?? ($index + 1),
+                ]);
+            }
+
+            $data['correct_answer'] = collect($request->choices)->firstWhere('is_correct', true)['label'] ?? null;
         }
 
         $question->update($data);
@@ -296,6 +314,51 @@ class QuestionController extends Controller
         $question->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function duplicate(Session $session, SessionRound $round, Question $question): JsonResponse
+    {
+        $nextOrder = $round->questions()->max('display_order') + 1;
+
+        $copy = Question::create([
+            'session_round_id' => $round->id,
+            'text' => $question->text,
+            'answer_type' => $question->answer_type,
+            'correct_answer' => $question->correct_answer,
+            'duration' => $question->duration,
+            'display_order' => $nextOrder,
+            'media_url' => $question->media_url,
+            'media_type' => $question->media_type,
+            'number_is_decimal' => $question->number_is_decimal,
+            'status' => QuestionStatus::Pending,
+        ]);
+
+        foreach ($question->choices as $choice) {
+            QuestionChoice::create([
+                'question_id' => $copy->id,
+                'label' => $choice->label,
+                'is_correct' => $choice->is_correct,
+                'display_order' => $choice->display_order,
+            ]);
+        }
+
+        if ($question->hint) {
+            QuestionHint::create([
+                'question_id' => $copy->id,
+                'hint_type' => $question->hint->hint_type,
+                'time_penalty_seconds' => $question->hint->time_penalty_seconds,
+                'removed_choice_ids' => $question->hint->removed_choice_ids,
+                'revealed_letters' => $question->hint->revealed_letters,
+                'range_hint_text' => $question->hint->range_hint_text,
+                'range_min' => $question->hint->range_min,
+                'range_max' => $question->hint->range_max,
+            ]);
+        }
+
+        return response()->json(
+            new QuestionResource($copy->load(['choices', 'hint'])),
+            201
+        );
     }
 
     private function detectMediaType(UploadedFile $file): MediaType

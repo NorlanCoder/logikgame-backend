@@ -9,16 +9,16 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class RoundEnded implements ShouldBroadcastNow
+class DuelQuestionsAssigned implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
+    /**
+     * @param  array<int, array{session_player_id: int, pseudo: string, turn_order: int, question_id: int}>  $assignments
+     */
     public function __construct(
         public Session $session,
-        public int $roundNumber,
-        public string $roundName,
-        public int $playersRemaining,
-        public int $jackpot,
+        public array $assignments,
     ) {}
 
     /**
@@ -33,7 +33,7 @@ class RoundEnded implements ShouldBroadcastNow
 
     public function broadcastAs(): string
     {
-        return 'round.ended';
+        return 'duel.questions.assigned';
     }
 
     /**
@@ -42,10 +42,7 @@ class RoundEnded implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
-            'round_number' => $this->roundNumber,
-            'name' => $this->roundName,
-            'players_remaining' => $this->playersRemaining,
-            'jackpot' => $this->jackpot,
+            'assignments' => $this->assignments,
         ];
     }
 }

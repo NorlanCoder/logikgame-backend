@@ -5,11 +5,11 @@ namespace App\Events;
 use App\Models\Session;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class QuestionClosed implements ShouldBroadcast
+class QuestionClosed implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -19,6 +19,8 @@ class QuestionClosed implements ShouldBroadcast
         public int $answersReceived,
         public int $correctCount,
         public int $eliminatedCount,
+        public array $inDangerPlayers = [],
+        public array $playerResults = [],
     ) {}
 
     /**
@@ -46,6 +48,9 @@ class QuestionClosed implements ShouldBroadcast
             'answers_received' => $this->answersReceived,
             'correct_count' => $this->correctCount,
             'eliminated_count' => $this->eliminatedCount,
+            'in_danger_count' => count($this->inDangerPlayers),
+            'in_danger_players' => $this->inDangerPlayers,
+            'player_results' => $this->playerResults,
         ];
     }
 }
