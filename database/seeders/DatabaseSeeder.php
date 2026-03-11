@@ -1,22 +1,7 @@
 <?php
-
 namespace Database\Seeders;
 
-use App\Enums\AnswerType;
-use App\Enums\RegistrationStatus;
-use App\Enums\RoundType;
 use App\Models\Admin;
-use App\Models\Player;
-use App\Models\PreselectionQuestion;
-use App\Models\PreselectionQuestionChoice;
-use App\Models\Question;
-use App\Models\QuestionChoice;
-use App\Models\QuestionHint;
-use App\Models\Registration;
-use App\Models\SecondChanceQuestion;
-use App\Models\SecondChanceQuestionChoice;
-use App\Models\Session;
-use App\Models\SessionRound;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -30,18 +15,21 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // --- Admin ---
-        $admin = Admin::factory()->create([
-            'name' => 'Admin LogikGame',
-            'email' => 'admin@logikgame.com',
+        $admin = Admin::create([
+            'name'      => 'Admin LogikGame',
+            'email'     => 'admin@logikgame.com',
+            'password'  => static::$password ??= Hash::make('password'),
+            'avatar'    => null,
+            'is_active' => true,
         ]);
 
         // --- Session de démonstration ---
-        $session = Session::factory()->create([
-            'admin_id' => $admin->id,
-            'name' => 'LOGIK S01E01 — Démo',
-            'description' => 'Session de démonstration pour le développement.',
-            'max_players' => 100,
-        ]);
+        // $session = Session::factory()->create([
+        //     'admin_id' => $admin->id,
+        //     'name' => 'LOGIK S01E01 — Démo',
+        //     'description' => 'Session de démonstration pour le développement.',
+        //     'max_players' => 100,
+        // ]);
 
         // --- 8 manches ---
         // $roundDefs = [
