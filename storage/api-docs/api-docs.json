@@ -2653,6 +2653,39 @@
                 ]
             }
         },
+        "/admin/sessions/{session}/duplicate": {
+            "post": {
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Dupliquer une session",
+                "description": "Duplique une session avec ses manches, questions (choix, indices, seconde chance) et questions de pré-sélection. Les joueurs, inscriptions et données de jeu ne sont pas copiés.",
+                "operationId": "883e2e304efec177d849f30365aa5ec4",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Session dupliquée"
+                    },
+                    "404": {
+                        "description": "Session introuvable"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/admin/sessions/{session}/rounds": {
             "get": {
                 "tags": [

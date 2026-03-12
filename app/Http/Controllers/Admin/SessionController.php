@@ -224,6 +224,140 @@ class SessionController extends Controller
         return response()->json(null, 204);
     }
 
+    #[OA\Post(
+        path: '/admin/sessions/{session}/duplicate',
+        summary: 'Dupliquer une session',
+        description: 'Duplique une session avec ses manches, questions (choix, indices, seconde chance) et questions de pré-sélection. Les joueurs, inscriptions et données de jeu ne sont pas copiés.',
+        security: [['sanctum' => []]],
+        tags: ['Sessions'],
+        parameters: [
+            new OA\Parameter(name: 'session', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 201, description: 'Session dupliquée'),
+            new OA\Response(response: 404, description: 'Session introuvable'),
+        ],
+    )]
+    public function duplicate(Request $request, Session $session): JsonResponse
+    {
+        $session->load([
+            'rounds.questions.choices',
+            'rounds.questions.hint',
+            'rounds.questions.secondChanceQuestion.choices',
+            'preselectionQuestions.choices',
+        ]);
+
+        // 1. Dupliquer la session
+        $newSession = Session::create([
+            'admin_id' => $request->user()->id,
+            'name' => $session->name . ' (copie)',
+            'description' => $session->description,
+            'cover_image_url' => $session->cover_image_url,
+            'scheduled_at' => $session->scheduled_at,
+            'max_players' => $session->max_players,
+            'reconnection_delay' => $session->reconnection_delay,
+            'status' => SessionStatus::Draft,
+        ]);
+
+        // 2. Dupliquer les manches et leurs questions
+        foreach ($session->rounds as $round) {
+            $newRound = $newSession->rounds()->create([
+                'round_number' => $round->round_number,
+                'round_type' => $round->round_type,
+                'name' => $round->name,
+                'is_active' => $round->is_active,
+                'status' => RoundStatus::Pending,
+                'display_order' => $round->display_order,
+                'rules_description' => $round->rules_description,
+            ]);
+
+            foreach ($round->questions as $question) {
+                $newQuestion = $newRound->questions()->create([
+                    'text' => $question->text,
+                    'media_type' => $question->media_type,
+                    'media_url' => $question->media_url,
+                    'answer_type' => $question->answer_type,
+                    'correct_answer' => $question->correct_answer,
+                    'number_is_decimal' => $question->number_is_decimal,
+                    'duration' => $question->duration,
+                    'display_order' => $question->display_order,
+                ]);
+
+                // Choix
+                foreach ($question->choices as $choice) {
+                    $newQuestion->choices()->create([
+                        'label' => $choice->label,
+                        'is_correct' => $choice->is_correct,
+                        'display_order' => $choice->display_order,
+                    ]);
+                }
+
+                // Indice
+                if ($question->hint) {
+                    $hint = $question->hint;
+                    $newQuestion->hint()->create([
+                        'hint_type' => $hint->hint_type,
+                        'time_penalty_seconds' => $hint->time_penalty_seconds,
+                        'removed_choice_ids' => $hint->removed_choice_ids,
+                        'revealed_letters' => $hint->revealed_letters,
+                        'range_hint_text' => $hint->range_hint_text,
+                        'range_min' => $hint->range_min,
+                        'range_max' => $hint->range_max,
+                    ]);
+                }
+
+                // Seconde chance
+                if ($question->secondChanceQuestion) {
+                    $sc = $question->secondChanceQuestion;
+                    $newSc = $newQuestion->secondChanceQuestion()->create([
+                        'text' => $sc->text,
+                        'media_type' => $sc->media_type,
+                        'media_url' => $sc->media_url,
+                        'answer_type' => $sc->answer_type,
+                        'correct_answer' => $sc->correct_answer,
+                        'number_is_decimal' => $sc->number_is_decimal,
+                        'duration' => $sc->duration,
+                    ]);
+
+                    foreach ($sc->choices as $scChoice) {
+                        $newSc->choices()->create([
+                            'label' => $scChoice->label,
+                            'is_correct' => $scChoice->is_correct,
+                            'display_order' => $scChoice->display_order,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // 3. Dupliquer les questions de pré-sélection
+        foreach ($session->preselectionQuestions as $pq) {
+            $newPq = $newSession->preselectionQuestions()->create([
+                'text' => $pq->text,
+                'media_type' => $pq->media_type,
+                'media_url' => $pq->media_url,
+                'answer_type' => $pq->answer_type,
+                'correct_answer' => $pq->correct_answer,
+                'number_is_decimal' => $pq->number_is_decimal,
+                'duration' => $pq->duration,
+                'display_order' => $pq->display_order,
+            ]);
+
+            foreach ($pq->choices as $pqChoice) {
+                $newPq->choices()->create([
+                    'label' => $pqChoice->label,
+                    'is_correct' => $pqChoice->is_correct,
+                    'display_order' => $pqChoice->display_order,
+                ]);
+            }
+        }
+
+        return response()->json(
+            new SessionResource($newSession->load('rounds')),
+            201
+        );
+    }
+
     /**
      * Crée les 8 manches par défaut pour une nouvelle session.
      *

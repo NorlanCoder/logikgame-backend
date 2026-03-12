@@ -37,6 +37,7 @@ Route::prefix('admin')->group(function () {
 
         // Sessions CRUD
         Route::apiResource('sessions', SessionController::class);
+        Route::post('sessions/{session}/duplicate', [SessionController::class, 'duplicate']);
 
         // Manches d'une session
         Route::prefix('sessions/{session}')->group(function () {
